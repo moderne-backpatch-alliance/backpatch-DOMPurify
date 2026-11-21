@@ -1709,7 +1709,9 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       }
 
       /* Is `value` valid for this attribute? */
-      const lcTag = transformCaseFunc(currentNode.nodeName);
+      const lcTag = transformCaseFunc(
+        getNodeName ? getNodeName(currentNode) : currentNode.nodeName
+      );
       if (!_isValidAttribute(lcTag, lcName, value)) {
         _removeAttribute(name, currentNode);
         continue;

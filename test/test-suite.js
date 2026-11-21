@@ -1097,6 +1097,26 @@
         }, 'root script still rejected');
       }
     );
+    // Attribute checks must key on the real tag, not an own nodeName
+    // override (same root cause as GHSA-x4vx-rjvf-j5p4).
+    QUnit.test(
+      'IN_PLACE: own-property nodeName override does not steer attribute checks',
+      (assert) => {
+        const run = (spoof) => {
+          const a = document.createElement('a');
+          a.setAttribute('href', 'data:text/html;base64,PHN2Zz48L3N2Zz4=');
+          if (spoof) {
+            Object.defineProperty(a, 'nodeName', { get: () => spoof });
+          }
+          DOMPurify.sanitize(a, { IN_PLACE: true });
+          return a.getAttribute('href');
+        };
+
+        assert.equal(run(null), null, 'control: data: href removed');
+        assert.equal(run('IMG'), null, 'nodeName "IMG" does not keep it');
+      }
+    );
+
     QUnit.test('Config-Flag tests: FORBID_TAGS', function (assert) {
       //FORBID_TAGS
       assert.equal(
