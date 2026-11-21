@@ -1,6 +1,6 @@
 schema: osera-patch-evidence/0.1.0
 producer: moderne
-release: 3.3.4-backpatch-00015
+release: 3.3.4-backpatch-00016
 baseline: v3.3.3+backpatch.baseline
 fixes:
   - cve: CVE-2026-41238
@@ -130,12 +130,20 @@ fixes:
     basis: adapted
     artifacts:
       - dompurify
-    note: "New in this release; upstream's fix in 3.4.16 (38c4c37f), adapted to 3.3.3. It closes the advisory: DOMPurify: IN_PLACE returns a force-removed rawtext root whose text carries attacker markup — pure HTML reparse executes."
+    note: "Carried from 3.3.4-backpatch-00015; upstream's fix in 3.4.16 (38c4c37f), adapted to 3.3.3. It closes the advisory: DOMPurify: IN_PLACE returns a force-removed rawtext root whose text carries attacker markup — pure HTML reparse executes."
+  - cve: CVE-2026-116802
+    upstream_fix_url: https://github.com/cure53/DOMPurify/commit/8ab84a3d0bedb38e5e6d44279f0a5f41e465e412
+    advisory_url: https://nvd.nist.gov/vuln/detail/CVE-2026-116802
+    patch_commit_url: https://github.com/moderne-backpatch-alliance/backpatch-DOMPurify/compare/1ea4798~1...54ceae7
+    basis: backport
+    artifacts:
+      - dompurify
+    note: "New in this release; upstream's fix in 3.4.17 (8ab84a3d). It closes the advisory: DOMPurify: SMIL attributeName=href guard is skipped when PARSER_MEDIA_TYPE is application/xhtml+xml."
 tests:
-  commit: 54f7948fac72f548105bc81c07872b5034285a01
+  commit: 54ceae7e4f8dc3fe1e10c8328e1e233f33786eda
   command: npm run build, npm pack; the packed package in a consumer, then NODE_ENV=test BABEL_ENV=rollup node test/jsdom-node-runner with test/jsdom-node.js loading DOMPurify through require('dompurify'), import 'dompurify', require('dompurify/purify.js') and require('dompurify/purify.min.js') in turn (repos/dompurify-3.3-verify/bin/tests.sh), TAP assertions as JUnit test cases
   runtime: Node.js v22.23.2, npm 10.9.8, rollup 3.30.0, typescript 5.6.3, jsdom 20.0.3, qunit 2.17.2, macOS 27.2 arm64
-  report: dompurify-3.3.4-backpatch-00015-tests.zip
-  report_sha256: 681ae2bd052221d20cf374df4a90dc1f37b06236f40d54a01b3f8164a6016e13
+  report: dompurify-3.3.4-backpatch-00016-tests.zip
+  report_sha256: a7141b119be47482354865f48147ce406b35f97e0b6d21976b81411816310c4d
   result: pass
-  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 4292 tests, 4292 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 20 tests, 16 passed, 4 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 20 tests, 20 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
+  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 4320 tests, 4320 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 28 tests, 12 passed, 16 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 28 tests, 28 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
