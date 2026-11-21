@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00005 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00005/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00006 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00006/LICENSE */
 
 const {
   entries,
@@ -305,7 +305,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00005';
+  DOMPurify.version = '3.3.4-backpatch-00006';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -335,6 +335,9 @@ function createDOMPurify() {
   const getNextSibling = lookupGetter(ElementPrototype, 'nextSibling');
   const getChildNodes = lookupGetter(ElementPrototype, 'childNodes');
   const getParentNode = lookupGetter(ElementPrototype, 'parentNode');
+  const getAttributes = lookupGetter(ElementPrototype, 'attributes');
+  const getNodeType = Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeType') : null;
+  const getNodeName = Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeName') : null;
   // As per issue #47, the web-components registry is inherited by a
   // new document created via createHTMLDocument. As per the spec
   // (http://w3c.github.io/webcomponents/spec/custom/#creating-and-passing-registries)
@@ -904,19 +907,70 @@ function createDOMPurify() {
    * @return true if clobbered, false if safe
    */
   const _isClobbered = function _isClobbered(element) {
-    return element instanceof HTMLFormElement && (typeof element.nodeName !== 'string' || typeof element.textContent !== 'string' || typeof element.removeChild !== 'function' || !(element.attributes instanceof NamedNodeMap) || typeof element.removeAttribute !== 'function' || typeof element.setAttribute !== 'function' || typeof element.namespaceURI !== 'string' || typeof element.insertBefore !== 'function' || typeof element.hasChildNodes !== 'function' ||
+    // Realm-independent tag-name probe; `instanceof HTMLFormElement` is
+    // false for forms from another realm (GHSA-hpcv-96wg-7vj8).
+    const realTagName = getNodeName ? getNodeName(element) : null;
+    if (typeof realTagName !== 'string') {
+      return false;
+    }
+    if (transformCaseFunc(realTagName) !== 'form') {
+      return false;
+    }
+    return typeof element.nodeName !== 'string' || typeof element.textContent !== 'string' || typeof element.removeChild !== 'function' ||
+    // Realm-safe NamedNodeMap detection: a clobbered .attributes diverges
+    // from the cached prototype getter's read.
+    element.attributes !== getAttributes(element) || typeof element.removeAttribute !== 'function' || typeof element.setAttribute !== 'function' || typeof element.namespaceURI !== 'string' || typeof element.insertBefore !== 'function' || typeof element.hasChildNodes !== 'function' ||
     // Form [LegacyOverrideBuiltIns]: a child named "childNodes" makes the
     // direct read diverge from the cached getter; typeof cannot see it.
-    element.childNodes !== getChildNodes(element));
+    element.childNodes !== getChildNodes(element);
   };
   /**
-   * Checks whether the given object is a DOM node.
+   * Checks whether the given value is a DocumentFragment from any realm.
+   *
+   * The realm-independent replacement reads `nodeType` through the cached
+   * Node.prototype getter and compares to the DOCUMENT_FRAGMENT_NODE
+   * constant (11). nodeType is a numeric value resolved from the node's
+   * internal slot, identical across realms for the same kind of node.
+   *
+   * @param value object to check
+   * @return true if value is a DocumentFragment-shaped node from any realm
+   */
+  const _isDocumentFragment = function _isDocumentFragment(value) {
+    if (!getNodeType || typeof value !== 'object' || value === null) {
+      return false;
+    }
+    try {
+      return getNodeType(value) === NODE_TYPE.documentFragment;
+    } catch (_) {
+      return false;
+    }
+  };
+  /**
+   * Checks whether the given object is a DOM node, including nodes that
+   * originate from a different window/realm (e.g. an iframe's
+   * contentDocument). The previous `value instanceof Node` check was
+   * realm-bound: nodes from a different window failed it, causing
+   * sanitize() to silently stringify them and reset IN_PLACE to false,
+   * returning the original node unsanitized. See GHSA-4w3q-35jp-p934.
+   *
+   * Implementation: call the cached `nodeType` getter from Node.prototype
+   * directly on the value. This bypasses any clobbered instance property
+   * (e.g. a child element named "nodeType") and works across realms
+   * because the WebIDL `nodeType` getter reads an internal slot that
+   * every real Node has, regardless of which window minted it.
    *
    * @param value object to check whether it's a DOM node
-   * @return true is object is a DOM node
+   * @return true if value is a DOM node from any realm
    */
   const _isNode = function _isNode(value) {
-    return typeof Node === 'function' && value instanceof Node;
+    if (!getNodeType || typeof value !== 'object' || value === null) {
+      return false;
+    }
+    try {
+      return typeof getNodeType(value) === 'number';
+    } catch (_) {
+      return false;
+    }
   };
   function _executeHooks(hooks, currentNode, data) {
     arrayForEach(hooks, hook => {
@@ -990,8 +1044,10 @@ function createDOMPurify() {
       _forceRemove(currentNode);
       return true;
     }
-    /* Check whether element has a valid namespace */
-    if (currentNode instanceof Element && !_checkValidNamespace(currentNode)) {
+    /* Check whether element has a valid namespace.
+       Realm-safe check (GHSA-hpcv-96wg-7vj8): nodeType, not instanceof. */
+    const nt = getNodeType ? getNodeType(currentNode) : currentNode.nodeType;
+    if (nt === NODE_TYPE.element && !_checkValidNamespace(currentNode)) {
       _forceRemove(currentNode);
       return true;
     }
@@ -1215,8 +1271,9 @@ function createDOMPurify() {
       _sanitizeElements(shadowNode);
       /* Check attributes next */
       _sanitizeAttributes(shadowNode);
-      /* Deep shadow DOM detected */
-      if (shadowNode.content instanceof DocumentFragment) {
+      /* Deep shadow DOM detected.
+         Realm-safe check (GHSA-hpcv-96wg-7vj8): nodeType, not instanceof. */
+      if (_isDocumentFragment(shadowNode.content)) {
         _sanitizeShadowDOM(shadowNode.content);
       }
       /* NodeIterator does not enter shadow trees, so a shadow root hosted
@@ -1225,7 +1282,7 @@ function createDOMPurify() {
       const shadowNodeType = shadowNode.nodeType;
       if (shadowNodeType === NODE_TYPE.element) {
         const innerSr = shadowNode.shadowRoot;
-        if (innerSr instanceof DocumentFragment) {
+        if (_isDocumentFragment(innerSr)) {
           _sanitizeAttachedShadowRoots(innerSr);
           _sanitizeShadowDOM(innerSr);
         }
@@ -1254,7 +1311,7 @@ function createDOMPurify() {
    * @param root the subtree root to walk for attached shadow roots
    */
   const _sanitizeAttachedShadowRoots = function _sanitizeAttachedShadowRoots(root) {
-    if (root.nodeType === NODE_TYPE.element && root.shadowRoot instanceof DocumentFragment) {
+    if (root.nodeType === NODE_TYPE.element && _isDocumentFragment(root.shadowRoot)) {
       const sr = root.shadowRoot;
       // Recurse first so that nested shadow roots are reached even if
       // _sanitizeShadowDOM removes hosts at this level.
@@ -1281,7 +1338,7 @@ function createDOMPurify() {
       const rootName = root.nodeName;
       if (typeof rootName === 'string' && transformCaseFunc(rootName) === 'template') {
         const content = root.content;
-        if (content instanceof DocumentFragment) {
+        if (_isDocumentFragment(content)) {
           _sanitizeAttachedShadowRoots(content);
         }
       }
@@ -1342,7 +1399,7 @@ function createDOMPurify() {
       /* Sanitize attached shadow roots before the main iterator runs.
          The iterator does not descend into shadow trees. */
       _sanitizeAttachedShadowRoots(dirty);
-    } else if (dirty instanceof Node) {
+    } else if (_isNode(dirty)) {
       /* If dirty is a DOM element, append to an empty document to avoid
          elements being stripped by the parser */
       body = _initDocument('<!---->');
@@ -1386,8 +1443,9 @@ function createDOMPurify() {
       _sanitizeElements(currentNode);
       /* Check attributes next */
       _sanitizeAttributes(currentNode);
-      /* Shadow DOM detected, sanitize it */
-      if (currentNode.content instanceof DocumentFragment) {
+      /* Shadow DOM detected, sanitize it.
+         Realm-safe check (GHSA-hpcv-96wg-7vj8): nodeType, not instanceof. */
+      if (_isDocumentFragment(currentNode.content)) {
         _sanitizeShadowDOM(currentNode.content);
       }
     }
