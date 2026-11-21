@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00009 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00009/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00010 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00010/LICENSE */
 
 'use strict';
 
@@ -307,7 +307,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00009';
+  DOMPurify.version = '3.3.4-backpatch-00010';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -989,6 +989,50 @@ function createDOMPurify() {
     NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_TEXT | NodeFilter.SHOW_PROCESSING_INSTRUCTION | NodeFilter.SHOW_CDATA_SECTION, null);
   };
   /**
+   * Strip template-engine expressions ({{...}}, ${...}, <%...%>) from the
+   * character data of an element subtree. Used as the final safety net for
+   * SAFE_FOR_TEMPLATES on every DOM-returning code path so that expressions
+   * which only form after text-node normalization (e.g. fragments split across
+   * stripped elements) cannot survive into a template-evaluating framework.
+   *
+   * Walks text/comment/CDATA/processing-instruction nodes and mutates `.data`
+   * in place rather than round-tripping through innerHTML. This preserves
+   * descendant node references (important for IN_PLACE callers), avoids a
+   * serialize/reparse cycle, and reads literal character data — which means
+   * `<%...%>` in text content matches the ERB regex against its real bytes
+   * instead of the HTML-entity-escaped form innerHTML would produce.
+   *
+   * Attribute values are not visited here; SAFE_FOR_TEMPLATES handling for
+   * attributes is performed during the per-node `_sanitizeAttributes` pass.
+   *
+   * @param node The root element whose character data should be scrubbed.
+   */
+  const _scrubTemplateExpressions = function _scrubTemplateExpressions(node) {
+    var _node$querySelectorAl, _node$querySelectorAl2;
+    node.normalize();
+    const walker = createNodeIterator.call(node.ownerDocument || node, node,
+    // eslint-disable-next-line no-bitwise
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_CDATA_SECTION | NodeFilter.SHOW_PROCESSING_INSTRUCTION, null);
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      let data = currentNode.data;
+      arrayForEach([MUSTACHE_EXPR, ERB_EXPR, TMPLIT_EXPR], expr => {
+        data = stringReplace(data, expr, ' ');
+      });
+      currentNode.data = data;
+      currentNode = walker.nextNode();
+    }
+    // NodeIterator does not descend into <template>.content per the DOM spec,
+    // so we must explicitly recurse into each template's content fragment,
+    // mirroring the approach used by _sanitizeShadowDOM.
+    const templates = (_node$querySelectorAl = (_node$querySelectorAl2 = node.querySelectorAll) === null || _node$querySelectorAl2 === void 0 ? void 0 : _node$querySelectorAl2.call(node, 'template')) !== null && _node$querySelectorAl !== void 0 ? _node$querySelectorAl : [];
+    arrayForEach(Array.from(templates), tmpl => {
+      if (tmpl.content instanceof DocumentFragment) {
+        _scrubTemplateExpressions(tmpl.content);
+      }
+    });
+  };
+  /**
    * _isClobbered
    *
    * @param element element to check for clobbering attacks
@@ -1596,17 +1640,15 @@ function createDOMPurify() {
     }
     /* If we sanitized `dirty` in-place, return it. */
     if (inPlace) {
+      if (SAFE_FOR_TEMPLATES) {
+        _scrubTemplateExpressions(dirty);
+      }
       return dirty;
     }
     /* Return sanitized string or DOM */
     if (RETURN_DOM) {
       if (SAFE_FOR_TEMPLATES) {
-        body.normalize();
-        let html = body.innerHTML;
-        arrayForEach([MUSTACHE_EXPR, ERB_EXPR, TMPLIT_EXPR], expr => {
-          html = stringReplace(html, expr, ' ');
-        });
-        body.innerHTML = html;
+        _scrubTemplateExpressions(body);
       }
       if (RETURN_DOM_FRAGMENT) {
         returnNode = createDocumentFragment.call(body.ownerDocument);
