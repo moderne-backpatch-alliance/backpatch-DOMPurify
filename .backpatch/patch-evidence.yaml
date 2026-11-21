@@ -1,6 +1,6 @@
 schema: osera-patch-evidence/0.1.0
 producer: moderne
-release: 3.3.4-backpatch-00003
+release: 3.3.4-backpatch-00004
 baseline: v3.3.3+backpatch.baseline
 fixes:
   - cve: CVE-2026-41238
@@ -26,7 +26,7 @@ fixes:
     basis: backport
     artifacts:
       - dompurify
-    note: "New in this release; upstream's fix in 3.4.0 (f0ac588f). It closes the advisory: DOMPurify: FORBID_TAGS bypassed by function-based ADD_TAGS predicate (asymmetry with FORBID_ATTR fix)."
+    note: "Carried from 3.3.4-backpatch-00003; upstream's fix in 3.4.0 (f0ac588f). It closes the advisory: DOMPurify: FORBID_TAGS bypassed by function-based ADD_TAGS predicate (asymmetry with FORBID_ATTR fix)."
   - cve: CVE-2026-65903
     upstream_fix_url: https://github.com/cure53/DOMPurify/commit/f0ac588f40c7aaa3d9b8ffef0ffb140f7bdda495
     advisory_url: https://nvd.nist.gov/vuln/detail/CVE-2026-65903
@@ -34,12 +34,20 @@ fixes:
     basis: backport
     artifacts:
       - dompurify
-    note: "New in this release; upstream's fix in 3.4.0 (f0ac588f). It closes the advisory: DOMPurify's ADD_TAGS function form bypasses FORBID_TAGS due to short-circuit evaluation."
+    note: "Carried from 3.3.4-backpatch-00003; upstream's fix in 3.4.0 (f0ac588f). It closes the advisory: DOMPurify's ADD_TAGS function form bypasses FORBID_TAGS due to short-circuit evaluation."
+  - cve: CVE-2026-49459
+    upstream_fix_url: https://github.com/cure53/DOMPurify/commit/7996f1dc78eb8b7922388aed75d94a9f8fad9a36
+    advisory_url: https://nvd.nist.gov/vuln/detail/CVE-2026-49459
+    patch_commit_url: https://github.com/moderne-backpatch-alliance/backpatch-DOMPurify/compare/4f79f3a~1...0986285
+    basis: adapted
+    artifacts:
+      - dompurify
+    note: "New in this release; upstream's fix in 3.4.6 (7996f1dc), adapted to 3.3.3. It closes the advisory: DOMPurify: IN_PLACE mode preserves attributes of a clobbered root element, allowing XSS via attacker-controlled root DOM."
 tests:
-  commit: 6b09045c6a85b26297f4bd6ead5a59ca4858751e
+  commit: 0986285b39b378679fa23edf19e0b7e521f4bde7
   command: npm run build, npm pack; the packed package in a consumer, then NODE_ENV=test BABEL_ENV=rollup node test/jsdom-node-runner with test/jsdom-node.js loading DOMPurify through require('dompurify'), import 'dompurify', require('dompurify/purify.js') and require('dompurify/purify.min.js') in turn (repos/dompurify-3.3-verify/bin/tests.sh), TAP assertions as JUnit test cases
   runtime: Node.js v22.23.2, npm 10.9.8, rollup 3.30.0, typescript 5.6.3, jsdom 20.0.3, qunit 2.17.2, macOS 27.2 arm64
-  report: dompurify-3.3.4-backpatch-00003-tests.zip
-  report_sha256: dd0da9d5b6e611ce61d2f9b64d43aeb718791e3ab6f85802b24f95bdcbb4081f
+  report: dompurify-3.3.4-backpatch-00004-tests.zip
+  report_sha256: bdc3d47ac27c31d5aac745b61bfdf2d922fbeb02ab9fd34bbeb773b1d8545f75
   result: pass
-  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 3708 tests, 3708 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 16 tests, 0 passed, 16 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 16 tests, 16 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
+  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 3760 tests, 3760 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 56 tests, 36 passed, 20 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 56 tests, 56 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
