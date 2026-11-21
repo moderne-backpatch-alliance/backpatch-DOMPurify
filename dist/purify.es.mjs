@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00003 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00003/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00004 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00004/LICENSE */
 
 const {
   entries,
@@ -305,7 +305,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00003';
+  DOMPurify.version = '3.3.4-backpatch-00004';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -904,7 +904,10 @@ function createDOMPurify() {
    * @return true if clobbered, false if safe
    */
   const _isClobbered = function _isClobbered(element) {
-    return element instanceof HTMLFormElement && (typeof element.nodeName !== 'string' || typeof element.textContent !== 'string' || typeof element.removeChild !== 'function' || !(element.attributes instanceof NamedNodeMap) || typeof element.removeAttribute !== 'function' || typeof element.setAttribute !== 'function' || typeof element.namespaceURI !== 'string' || typeof element.insertBefore !== 'function' || typeof element.hasChildNodes !== 'function');
+    return element instanceof HTMLFormElement && (typeof element.nodeName !== 'string' || typeof element.textContent !== 'string' || typeof element.removeChild !== 'function' || !(element.attributes instanceof NamedNodeMap) || typeof element.removeAttribute !== 'function' || typeof element.setAttribute !== 'function' || typeof element.namespaceURI !== 'string' || typeof element.insertBefore !== 'function' || typeof element.hasChildNodes !== 'function' ||
+    // Form [LegacyOverrideBuiltIns]: a child named "childNodes" makes the
+    // direct read diverge from the cached getter; typeof cannot see it.
+    element.childNodes !== getChildNodes(element));
   };
   /**
    * Checks whether the given object is a DOM node.
@@ -1266,6 +1269,11 @@ function createDOMPurify() {
         if (!ALLOWED_TAGS[tagName] || FORBID_TAGS[tagName]) {
           throw typeErrorCreate('root node is forbidden and cannot be sanitized in-place');
         }
+      }
+      /* A parent-less root cannot be removed by _forceRemove, and
+         _sanitizeAttributes skips clobbered nodes, so refuse it here. */
+      if (_isClobbered(dirty)) {
+        throw typeErrorCreate('root node is clobbered and cannot be sanitized in-place');
       }
     } else if (dirty instanceof Node) {
       /* If dirty is a DOM element, append to an empty document to avoid
