@@ -4020,6 +4020,53 @@
           'default-cfg call after clearConfig strips onerror'
         );
       });
+
+      QUnit.test(
+        'lazily installed attribute hook does not poison later calls',
+        (assert) => {
+          let installed = false;
+          purify.addHook('beforeSanitizeElements', () => {
+            if (!installed) {
+              installed = true;
+              purify.addHook('uponSanitizeAttribute', (node, data) => {
+                data.allowedAttributes['x-widget'] = true;
+              });
+            }
+          });
+          purify.sanitize('<b x-widget="1">a</b>');
+          purify.removeAllHooks();
+
+          assert.equal(
+            purify.sanitize('<b x-widget="1">a</b>'),
+            '<b>a</b>',
+            'default-cfg call after lazy hook keeps x-widget out'
+          );
+        }
+      );
+
+      QUnit.test(
+        'setConfig: lazily installed element hook does not poison later calls',
+        (assert) => {
+          purify.setConfig({ ALLOWED_TAGS: ['b'] });
+          let installed = false;
+          purify.addHook('beforeSanitizeElements', () => {
+            if (!installed) {
+              installed = true;
+              purify.addHook('uponSanitizeElement', (node, data) => {
+                data.allowedTags['i'] = true;
+              });
+            }
+          });
+          purify.sanitize('<b>a</b>');
+          purify.removeAllHooks();
+
+          assert.equal(
+            purify.sanitize('<i>a</i>'),
+            'a',
+            'setConfig call after lazy hook keeps <i> out'
+          );
+        }
+      );
     });
   };
 });

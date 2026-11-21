@@ -1151,6 +1151,33 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
   }
 
   /**
+   * Fork a hook-mutable allowlist off its shared binding the first time a
+   * (possibly lazily-installed) uponSanitize* hook is about to see it, so the
+   * hook cannot widen the per-instance default or the setConfig binding by
+   * reference and leak past the call. Returns the set unchanged once it is
+   * already call-local, so repeated calls across elements are idempotent.
+   *
+   * @param hookList the uponSanitize* hook array for this event
+   * @param set the current ALLOWED_TAGS / ALLOWED_ATTR binding
+   * @param defaultSet the per-instance DEFAULT_ALLOWED_* constant
+   * @param setConfigSet the captured setConfig() binding, or null
+   * @return a call-local clone if a hook is present and set is still shared,
+   *   else set unchanged
+   */
+  const _forkSharedAllowlist = function <T extends Record<string, any>>(
+    hookList: unknown[],
+    set: T,
+    defaultSet: T,
+    setConfigSet: T | null
+  ): T {
+    if (hookList.length === 0) {
+      return set;
+    }
+
+    return set === defaultSet || set === setConfigSet ? clone(set) : set;
+  };
+
+  /**
    * _sanitizeElements
    *
    * @protect nodeName
@@ -1173,6 +1200,18 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
 
     /* Now let's check the element's type and name */
     const tagName = transformCaseFunc(currentNode.nodeName);
+
+    /* Close the pre-walk clone-guard's timing gap: an uponSanitizeElement
+       hook may have been installed after that guard sampled the hook arrays
+       (e.g. lazily from beforeSanitizeElements), leaving ALLOWED_TAGS still
+       aliasing a shared binding that a widening hook would mutate by
+       reference. Fork it before exposing it to the hook. */
+    ALLOWED_TAGS = _forkSharedAllowlist(
+      hooks.uponSanitizeElement,
+      ALLOWED_TAGS,
+      DEFAULT_ALLOWED_TAGS,
+      SET_CONFIG_ALLOWED_TAGS
+    );
 
     /* Execute a hook if present */
     _executeHooks(hooks.uponSanitizeElement, currentNode, {
@@ -1445,6 +1484,15 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     if (!attributes || _isClobbered(currentNode)) {
       return;
     }
+
+    /* Same lazy-install guard as uponSanitizeElement (see there): fork the
+       attribute allowlist off its shared binding before a hook can see it. */
+    ALLOWED_ATTR = _forkSharedAllowlist(
+      hooks.uponSanitizeAttribute,
+      ALLOWED_ATTR,
+      DEFAULT_ALLOWED_ATTR,
+      SET_CONFIG_ALLOWED_ATTR
+    );
 
     const hookEvent = {
       attrName: '',
