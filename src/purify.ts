@@ -185,6 +185,27 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
   let trustedTypesPolicy;
   let emptyHTML = '';
 
+  // A policy whose createHTML calls DOMPurify.sanitize would recurse until the
+  // stack overflows (#1422); this re-entry guard throws a clear error instead.
+  let IN_POLICY_CREATE_HTML = 0;
+  const _createTrustedHTML = function (html: string): string {
+    if (IN_POLICY_CREATE_HTML > 0) {
+      throw typeErrorCreate(
+        'The configured TRUSTED_TYPES_POLICY.createHTML must not call ' +
+          'DOMPurify.sanitize, as that causes infinite recursion. Do not pass ' +
+          'a policy whose createHTML wraps DOMPurify as TRUSTED_TYPES_POLICY; ' +
+          'see the "DOMPurify and Trusted Types" section of the README.'
+      );
+    }
+
+    IN_POLICY_CREATE_HTML++;
+    try {
+      return trustedTypesPolicy.createHTML(html);
+    } finally {
+      IN_POLICY_CREATE_HTML--;
+    }
+  };
+
   const {
     implementation,
     createNodeIterator,
@@ -732,10 +753,18 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       }
 
       // Overwrite existing TrustedTypes policy.
+      const previousTrustedTypesPolicy = trustedTypesPolicy;
       trustedTypesPolicy = cfg.TRUSTED_TYPES_POLICY;
 
-      // Sign local variables required by `sanitize`.
-      emptyHTML = trustedTypesPolicy.createHTML('');
+      // Sign local variables required by `sanitize`. A circular policy throws
+      // via the re-entry guard; restore the previous one so the instance is not
+      // left poisoned. See #1422.
+      try {
+        emptyHTML = _createTrustedHTML('');
+      } catch (error) {
+        trustedTypesPolicy = previousTrustedTypesPolicy;
+        throw error;
+      }
     } else {
       // Uninitialized policy, attempt to initialize the internal dompurify policy.
       if (
@@ -749,8 +778,10 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       }
 
       // If creating the internal policy succeeded sign internal variables.
-      if (trustedTypesPolicy !== null && typeof emptyHTML === 'string') {
-        emptyHTML = trustedTypesPolicy.createHTML('');
+      // A falsy policy (creation failed or skipped, or not yet initialized)
+      // must be excluded, or `.createHTML` is called on a non-policy. See #1422.
+      if (trustedTypesPolicy && typeof emptyHTML === 'string') {
+        emptyHTML = _createTrustedHTML('');
       }
     }
 
@@ -990,9 +1021,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         '</body></html>';
     }
 
-    const dirtyPayload = trustedTypesPolicy
-      ? trustedTypesPolicy.createHTML(dirty)
-      : dirty;
+    const dirtyPayload = trustedTypesPolicy ? _createTrustedHTML(dirty) : dirty;
     /*
      * Use the DOMParser API by default, fallback later if needs be
      * DOMParser not work for svg when has multiple root element.
@@ -1594,7 +1623,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         } else {
           switch (trustedTypes.getAttributeType(lcTag, lcName)) {
             case 'TrustedHTML': {
-              value = trustedTypesPolicy.createHTML(value);
+              value = _createTrustedHTML(value);
               break;
             }
 
@@ -1869,7 +1898,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         dirty.indexOf('<') === -1
       ) {
         return trustedTypesPolicy && RETURN_TRUSTED_TYPE
-          ? trustedTypesPolicy.createHTML(dirty)
+          ? _createTrustedHTML(dirty)
           : dirty;
       }
 
@@ -1969,7 +1998,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     }
 
     return trustedTypesPolicy && RETURN_TRUSTED_TYPE
-      ? trustedTypesPolicy.createHTML(serializedHTML)
+      ? _createTrustedHTML(serializedHTML)
       : serializedHTML;
   };
 
