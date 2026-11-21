@@ -1579,7 +1579,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       const shadowNodeType = (shadowNode as Node).nodeType;
       if (shadowNodeType === NODE_TYPE.element) {
         const innerSr = (shadowNode as Element).shadowRoot;
-        if (innerSr instanceof DocumentFragment) {
+        if (_isDocumentFragment(innerSr)) {
           _sanitizeAttachedShadowRoots(innerSr);
           _sanitizeShadowDOM(innerSr);
         }
@@ -1612,7 +1612,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
   const _sanitizeAttachedShadowRoots = function (root: Node): void {
     if (
       root.nodeType === NODE_TYPE.element &&
-      (root as Element).shadowRoot instanceof DocumentFragment
+      _isDocumentFragment((root as Element).shadowRoot)
     ) {
       const sr = (root as Element).shadowRoot as DocumentFragment;
       // Recurse first so that nested shadow roots are reached even if
@@ -1647,7 +1647,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         transformCaseFunc(rootName) === 'template'
       ) {
         const content = (root as HTMLTemplateElement).content;
-        if (content instanceof DocumentFragment) {
+        if (_isDocumentFragment(content)) {
           _sanitizeAttachedShadowRoots(content);
         }
       }
