@@ -1510,6 +1510,18 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       if (shadowNode.content instanceof DocumentFragment) {
         _sanitizeShadowDOM(shadowNode.content);
       }
+
+      /* NodeIterator does not enter shadow trees, so a shadow root hosted
+         inside template.content is reached by no other walk; the nodeType
+         guard skips text / comment / CDATA / PI nodes. */
+      const shadowNodeType = (shadowNode as Node).nodeType;
+      if (shadowNodeType === NODE_TYPE.element) {
+        const innerSr = (shadowNode as Element).shadowRoot;
+        if (innerSr instanceof DocumentFragment) {
+          _sanitizeAttachedShadowRoots(innerSr);
+          _sanitizeShadowDOM(innerSr);
+        }
+      }
     }
 
     /* Execute a hook if present */
@@ -1563,6 +1575,20 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
 
     for (const child of snapshot) {
       _sanitizeAttachedShadowRoots(child);
+    }
+
+    /* When the root is a <template>, also descend into root.content */
+    if (root.nodeType === NODE_TYPE.element) {
+      const rootName = (root as Element).nodeName;
+      if (
+        typeof rootName === 'string' &&
+        transformCaseFunc(rootName) === 'template'
+      ) {
+        const content = (root as HTMLTemplateElement).content;
+        if (content instanceof DocumentFragment) {
+          _sanitizeAttachedShadowRoots(content);
+        }
+      }
     }
   };
 
