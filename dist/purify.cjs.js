@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00010 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00010/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00011 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00011/LICENSE */
 
 'use strict';
 
@@ -184,6 +184,27 @@ function lookupGetter(object, prop) {
   }
   return fallbackValue;
 }
+/**
+ * Like lookupGetter, but for accessor properties only, and returns null
+ * instead of a null-returning fallback when no getter exists on the chain.
+ * Lets a caller fall back to a direct property read in environments that
+ * lack the getter, where a fallback returning null would be indistinguishable
+ * from a legitimate null value (e.g. namespaceURI of a no-namespace element).
+ *
+ * @param object - The object (usually a prototype) to start the lookup at.
+ * @param prop - The accessor property name.
+ * @returns The unapplied getter, or null if none was found.
+ */
+function lookupAccessor(object, prop) {
+  while (object !== null) {
+    const desc = getOwnPropertyDescriptor(object, prop);
+    if (desc) {
+      return desc.get ? unapply(desc.get) : null;
+    }
+    object = getPrototypeOf(object);
+  }
+  return null;
+}
 
 const html$1 = freeze(['a', 'abbr', 'acronym', 'address', 'area', 'article', 'aside', 'audio', 'b', 'bdi', 'bdo', 'big', 'blink', 'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'center', 'cite', 'code', 'col', 'colgroup', 'content', 'data', 'datalist', 'dd', 'decorator', 'del', 'details', 'dfn', 'dialog', 'dir', 'div', 'dl', 'dt', 'element', 'em', 'fieldset', 'figcaption', 'figure', 'font', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header', 'hgroup', 'hr', 'html', 'i', 'img', 'input', 'ins', 'kbd', 'label', 'legend', 'li', 'main', 'map', 'mark', 'marquee', 'menu', 'menuitem', 'meter', 'nav', 'nobr', 'ol', 'optgroup', 'option', 'output', 'p', 'picture', 'pre', 'progress', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'search', 'section', 'select', 'shadow', 'slot', 'small', 'source', 'spacer', 'span', 'strike', 'strong', 'style', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'template', 'textarea', 'tfoot', 'th', 'thead', 'time', 'tr', 'track', 'tt', 'u', 'ul', 'var', 'video', 'wbr']);
 const svg$1 = freeze(['svg', 'a', 'altglyph', 'altglyphdef', 'altglyphitem', 'animatecolor', 'animatemotion', 'animatetransform', 'circle', 'clippath', 'defs', 'desc', 'ellipse', 'enterkeyhint', 'exportparts', 'filter', 'font', 'g', 'glyph', 'glyphref', 'hkern', 'image', 'inputmode', 'line', 'lineargradient', 'marker', 'mask', 'metadata', 'mpath', 'part', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient', 'rect', 'stop', 'style', 'switch', 'symbol', 'text', 'textpath', 'title', 'tref', 'tspan', 'view', 'vkern']);
@@ -307,7 +328,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00010';
+  DOMPurify.version = '3.3.4-backpatch-00011';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -340,6 +361,12 @@ function createDOMPurify() {
   const getAttributes = lookupGetter(ElementPrototype, 'attributes');
   const getNodeType = Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeType') : null;
   const getNodeName = Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeName') : null;
+  /* Element namespace through the cached Element.prototype getter, so a live
+     node's own-property override cannot steer namespace decisions. */
+  const getNamespaceURI = lookupAccessor(ElementPrototype, 'namespaceURI');
+  const _readNamespaceURI = function _readNamespaceURI(element) {
+    return getNamespaceURI ? getNamespaceURI(element) : element.namespaceURI;
+  };
   // As per issue #47, the web-components registry is inherited by a
   // new document created via createHTMLDocument. As per the spec
   // (http://w3c.github.io/webcomponents/spec/custom/#creating-and-passing-registries)
@@ -802,21 +829,31 @@ function createDOMPurify() {
    *  return. Return true otherwise.
    */
   const _checkValidNamespace = function _checkValidNamespace(element) {
-    let parent = getParentNode(element);
-    // In JSDOM, if we're inside shadow DOM, then parentNode
-    // can be null. We just simulate parent in this case.
-    if (!parent || !parent.tagName) {
+    /* Names and namespaces come from the cached prototype getters: own-property
+       tagName / namespaceURI overrides on a live IN_PLACE node must not steer
+       this (same root cause as GHSA-x4vx-rjvf-j5p4). */
+    const elementNamespace = _readNamespaceURI(element);
+    const tagName = stringToLowerCase(getNodeName ? getNodeName(element) : element.nodeName);
+    // A missing parent (JSDOM inside shadow DOM) or a non-element parent
+    // is simulated as a <template> in the configured namespace.
+    const parentNode = getParentNode(element);
+    let parent;
+    let parentTagName;
+    if (parentNode && (getNodeType ? getNodeType(parentNode) : parentNode.nodeType) === NODE_TYPE.element) {
       parent = {
-        namespaceURI: NAMESPACE,
-        tagName: 'template'
+        namespaceURI: _readNamespaceURI(parentNode)
       };
+      parentTagName = stringToLowerCase(getNodeName ? getNodeName(parentNode) : parentNode.nodeName);
+    } else {
+      parent = {
+        namespaceURI: NAMESPACE
+      };
+      parentTagName = 'template';
     }
-    const tagName = stringToLowerCase(element.tagName);
-    const parentTagName = stringToLowerCase(parent.tagName);
-    if (!ALLOWED_NAMESPACES[element.namespaceURI]) {
+    if (!ALLOWED_NAMESPACES[elementNamespace]) {
       return false;
     }
-    if (element.namespaceURI === SVG_NAMESPACE) {
+    if (elementNamespace === SVG_NAMESPACE) {
       // The only way to switch from HTML namespace to SVG
       // is via <svg>. If it happens via any other tag, then
       // it should be killed.
@@ -833,7 +870,7 @@ function createDOMPurify() {
       // spec. All others are disallowed in SVG namespace.
       return Boolean(ALL_SVG_TAGS[tagName]);
     }
-    if (element.namespaceURI === MATHML_NAMESPACE) {
+    if (elementNamespace === MATHML_NAMESPACE) {
       // The only way to switch from HTML namespace to MathML
       // is via <math>. If it happens via any other tag, then
       // it should be killed.
@@ -849,7 +886,7 @@ function createDOMPurify() {
       // spec. All others are disallowed in MathML namespace.
       return Boolean(ALL_MATHML_TAGS[tagName]);
     }
-    if (element.namespaceURI === HTML_NAMESPACE) {
+    if (elementNamespace === HTML_NAMESPACE) {
       // The only way to switch from SVG to HTML is via
       // HTML integration points, and from MathML to HTML
       // is via MathML text integration points
@@ -864,7 +901,7 @@ function createDOMPurify() {
       return !ALL_MATHML_TAGS[tagName] && (COMMON_SVG_AND_HTML_ELEMENTS[tagName] || !ALL_SVG_TAGS[tagName]);
     }
     // For XHTML and XML documents that support custom namespaces
-    if (PARSER_MEDIA_TYPE === 'application/xhtml+xml' && ALLOWED_NAMESPACES[element.namespaceURI]) {
+    if (PARSER_MEDIA_TYPE === 'application/xhtml+xml' && ALLOWED_NAMESPACES[elementNamespace]) {
       return true;
     }
     // The code should never reach this place (this means
@@ -1148,7 +1185,7 @@ function createDOMPurify() {
       return true;
     }
     /* Now let's check the element's type and name */
-    const tagName = transformCaseFunc(currentNode.nodeName);
+    const tagName = transformCaseFunc(getNodeName ? getNodeName(currentNode) : currentNode.nodeName);
     /* Close the pre-walk clone-guard's timing gap: an uponSanitizeElement
        hook may have been installed after that guard sampled the hook arrays
        (e.g. lazily from beforeSanitizeElements), leaving ALLOWED_TAGS still
@@ -1378,7 +1415,7 @@ function createDOMPurify() {
         });
       }
       /* Is `value` valid for this attribute? */
-      const lcTag = transformCaseFunc(currentNode.nodeName);
+      const lcTag = transformCaseFunc(getNodeName ? getNodeName(currentNode) : currentNode.nodeName);
       if (!_isValidAttribute(lcTag, lcName, value)) {
         _removeAttribute(name, currentNode);
         continue;
@@ -1573,9 +1610,12 @@ function createDOMPurify() {
        and one string call would leave later in-place nodes unsanitized. */
     const inPlace = IN_PLACE && typeof dirty !== 'string' && _isNode(dirty);
     if (inPlace) {
-      /* Do some early pre-sanitization to avoid unsafe root nodes */
-      if (dirty.nodeName) {
-        const tagName = transformCaseFunc(dirty.nodeName);
+      /* Do some early pre-sanitization to avoid unsafe root nodes.
+         Read nodeName via the cached prototype getter: an own or clobbered
+         nodeName on the root must not skip the root-allowlist check. */
+      const nn = getNodeName ? getNodeName(dirty) : dirty.nodeName;
+      if (nn) {
+        const tagName = transformCaseFunc(nn);
         if (!ALLOWED_TAGS[tagName] || FORBID_TAGS[tagName]) {
           throw typeErrorCreate('root node is forbidden and cannot be sanitized in-place');
         }
