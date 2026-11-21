@@ -288,6 +288,26 @@
         '<item1>one</item1><item2>two</item2>'
       );
     });
+    QUnit.test(
+      'Config-Flag tests: FORBID_TAGS wins over ADD_TAGS as function',
+      function (assert) {
+        assert.equal(
+          DOMPurify.sanitize('<a>123<b>456</b></a>', {
+            ADD_TAGS: () => true,
+            FORBID_TAGS: ['b'],
+          }),
+          '<a>123456</a>'
+        );
+        assert.equal(
+          DOMPurify.sanitize('<apple>one</apple><banana>two</banana>', {
+            ADD_TAGS: (tagName) => ['apple', 'banana'].includes(tagName),
+            FORBID_TAGS: ['banana'],
+            KEEP_CONTENT: false,
+          }),
+          '<apple>one</apple>'
+        );
+      }
+    );
     QUnit.test('Config-Flag tests: ADD_ATTR as function', function (assert) {
       // ADD_ATTR as function with tag-specific attribute validation
       assert.equal(
