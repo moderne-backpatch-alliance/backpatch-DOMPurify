@@ -1,6 +1,6 @@
 schema: osera-patch-evidence/0.1.0
 producer: moderne
-release: 3.3.4-backpatch-00005
+release: 3.3.4-backpatch-00006
 baseline: v3.3.3+backpatch.baseline
 fixes:
   - cve: CVE-2026-41238
@@ -50,12 +50,20 @@ fixes:
     basis: adapted
     artifacts:
       - dompurify
-    note: "New in this release; upstream's fix in 3.4.7 (e4790120), adapted to 3.3.3, on its prerequisite b4fdfe2e (upstream's \"Cure53 shadowdom fix\", in 3.4.3, ported with its src unchanged), which adds the attached shadow root walk the fix extends. It closes the advisory: DOMPurify IN_PLACE Sanitization Bypass via Attached Shadow Root Inside <template>.content."
+    note: "Carried from 3.3.4-backpatch-00005; upstream's fix in 3.4.7 (e4790120), adapted to 3.3.3, on its prerequisite b4fdfe2e (upstream's \"Cure53 shadowdom fix\", in 3.4.3, ported with its src unchanged), which adds the attached shadow root walk the fix extends. It closes the advisory: DOMPurify IN_PLACE Sanitization Bypass via Attached Shadow Root Inside <template>.content."
+  - cve: CVE-2026-49458
+    upstream_fix_url: https://github.com/cure53/DOMPurify/commit/f6a7eb8aea94f3f4f333aea78760bafe104e705d
+    advisory_url: https://nvd.nist.gov/vuln/detail/CVE-2026-49458
+    patch_commit_url: https://github.com/moderne-backpatch-alliance/backpatch-DOMPurify/compare/74becef~1...0c6888d
+    basis: adapted
+    artifacts:
+      - dompurify
+    note: "New in this release; upstream's fix in 3.4.7 (f6a7eb8a, in 3.4.6, and e4790120's form of the shadow root checks, in 3.4.7), adapted to 3.3.3, on its prerequisite 4b0c94fd (GHSA-4w3q-35jp-p934, in 3.4.4). It closes the advisory: DOMPurify: Cross-realm IN_PLACE sanitization leaves executable markup intact via realm-bound `instanceof` checks."
 tests:
-  commit: c8858a75a4ef2e1a9dbf02550cacffcd0c3e9bb2
+  commit: 0c6888dc05c0a481a5922525bcb4254394c5083c
   command: npm run build, npm pack; the packed package in a consumer, then NODE_ENV=test BABEL_ENV=rollup node test/jsdom-node-runner with test/jsdom-node.js loading DOMPurify through require('dompurify'), import 'dompurify', require('dompurify/purify.js') and require('dompurify/purify.min.js') in turn (repos/dompurify-3.3-verify/bin/tests.sh), TAP assertions as JUnit test cases
   runtime: Node.js v22.23.2, npm 10.9.8, rollup 3.30.0, typescript 5.6.3, jsdom 20.0.3, qunit 2.17.2, macOS 27.2 arm64
-  report: dompurify-3.3.4-backpatch-00005-tests.zip
-  report_sha256: a81eda9d13c7d6262653d09c4e2a96dec1f2303d7b99fd5d793b57f75a077cbb
+  report: dompurify-3.3.4-backpatch-00006-tests.zip
+  report_sha256: 8b120883967f104201b3dfa28e899235cc8cde28afd67a86f243970951010513
   result: pass
-  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 3820 tests, 3820 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 84 tests, 52 passed, 32 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 84 tests, 84 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
+  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 3920 tests, 3920 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 100 tests, 52 passed, 48 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 100 tests, 100 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
