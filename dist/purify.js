@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00004 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00004/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00005 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00005/LICENSE */
 
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
@@ -311,7 +311,7 @@
   function createDOMPurify() {
     let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
     const DOMPurify = root => createDOMPurify(root);
-    DOMPurify.version = '3.3.4-backpatch-00004';
+    DOMPurify.version = '3.3.4-backpatch-00005';
     DOMPurify.removed = [];
     if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
       // Not running in a browser, provide a factory function
@@ -1225,9 +1225,73 @@
         if (shadowNode.content instanceof DocumentFragment) {
           _sanitizeShadowDOM(shadowNode.content);
         }
+        /* NodeIterator does not enter shadow trees, so a shadow root hosted
+           inside template.content is reached by no other walk; the nodeType
+           guard skips text / comment / CDATA / PI nodes. */
+        const shadowNodeType = shadowNode.nodeType;
+        if (shadowNodeType === NODE_TYPE.element) {
+          const innerSr = shadowNode.shadowRoot;
+          if (innerSr instanceof DocumentFragment) {
+            _sanitizeAttachedShadowRoots(innerSr);
+            _sanitizeShadowDOM(innerSr);
+          }
+        }
       }
       /* Execute a hook if present */
       _executeHooks(hooks.afterSanitizeShadowDOM, fragment, null);
+    };
+    /**
+     * _sanitizeAttachedShadowRoots
+     *
+     * Walks `root` and feeds every attached shadow root we encounter into
+     * the existing _sanitizeShadowDOM pipeline. The default node iterator
+     * does not descend into shadow trees, so nodes inside an attached
+     * shadow root would otherwise be skipped entirely.
+     *
+     * Two real input paths put attached shadow roots in front of us:
+     *   1. IN_PLACE on a DOM node that already has shadow roots attached.
+     *   2. DOM-node input where importNode(dirty, true) deep-clones the
+     *      shadow root because it was created with `clonable: true`.
+     *
+     * This pass runs once, up front, so the main iteration loop (and the
+     * existing _sanitizeShadowDOM template-content recursion) stay
+     * untouched — string-input paths are not affected.
+     *
+     * @param root the subtree root to walk for attached shadow roots
+     */
+    const _sanitizeAttachedShadowRoots = function _sanitizeAttachedShadowRoots(root) {
+      if (root.nodeType === NODE_TYPE.element && root.shadowRoot instanceof DocumentFragment) {
+        const sr = root.shadowRoot;
+        // Recurse first so that nested shadow roots are reached even if
+        // _sanitizeShadowDOM removes hosts at this level.
+        _sanitizeAttachedShadowRoots(sr);
+        _sanitizeShadowDOM(sr);
+      }
+      // Snapshot children before recursing. Sanitization of one subtree
+      // (e.g. via an uponSanitizeShadowNode hook) may detach siblings,
+      // and naive nextSibling traversal would silently skip the rest of
+      // the list once a node is detached.
+      const childNodes = root.childNodes;
+      if (!childNodes) {
+        return;
+      }
+      const snapshot = [];
+      arrayForEach(childNodes, child => {
+        arrayPush(snapshot, child);
+      });
+      for (const child of snapshot) {
+        _sanitizeAttachedShadowRoots(child);
+      }
+      /* When the root is a <template>, also descend into root.content */
+      if (root.nodeType === NODE_TYPE.element) {
+        const rootName = root.nodeName;
+        if (typeof rootName === 'string' && transformCaseFunc(rootName) === 'template') {
+          const content = root.content;
+          if (content instanceof DocumentFragment) {
+            _sanitizeAttachedShadowRoots(content);
+          }
+        }
+      }
     };
     // eslint-disable-next-line complexity
     DOMPurify.sanitize = function (dirty) {
@@ -1281,6 +1345,9 @@
         if (_isClobbered(dirty)) {
           throw typeErrorCreate('root node is clobbered and cannot be sanitized in-place');
         }
+        /* Sanitize attached shadow roots before the main iterator runs.
+           The iterator does not descend into shadow trees. */
+        _sanitizeAttachedShadowRoots(dirty);
       } else if (dirty instanceof Node) {
         /* If dirty is a DOM element, append to an empty document to avoid
            elements being stripped by the parser */
@@ -1295,6 +1362,10 @@
           // eslint-disable-next-line unicorn/prefer-dom-node-append
           body.appendChild(importedNode);
         }
+        /* Clonable shadow roots are deep-cloned by importNode(); sanitize
+           them before the main iterator runs, since the iterator does not
+           descend into shadow trees. */
+        _sanitizeAttachedShadowRoots(importedNode);
       } else {
         /* Exit directly if we have nothing to do */
         if (!RETURN_DOM && !SAFE_FOR_TEMPLATES && !WHOLE_DOCUMENT &&
