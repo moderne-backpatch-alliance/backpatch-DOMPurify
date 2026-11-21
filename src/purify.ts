@@ -1342,11 +1342,18 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
    * @param currentNode to check for permission to exist
    * @return true if node was killed, false if left alive
    */
-  const _sanitizeElements = function (currentNode: any): boolean {
+  // eslint-disable-next-line complexity
+  const _sanitizeElements = function (currentNode: any, root: Node): boolean {
     let content = null;
 
     /* Execute a hook if present */
     _executeHooks(hooks.beforeSanitizeElements, currentNode, null);
+
+    /* A hook may have detached the node — treat it as removed (see the
+       detached-node comment after the uponSanitizeElement hook below). */
+    if (currentNode !== root && getParentNode(currentNode) === null) {
+      return true;
+    }
 
     /* Check if element is clobbered or can clobber */
     if (_isClobbered(currentNode)) {
@@ -1376,6 +1383,13 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       tagName,
       allowedTags: ALLOWED_TAGS,
     });
+
+    /* A hook may have detached the node from the tree (issue #469 pattern):
+       treat it as removed and stop processing it. The walk root is exempt.
+       Hook-detached nodes are not recorded in DOMPurify.removed. */
+    if (currentNode !== root && getParentNode(currentNode) === null) {
+      return true;
+    }
 
     /* Detect mXSS attempts abusing namespace confusion */
     if (
@@ -1812,7 +1826,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       _executeHooks(hooks.uponSanitizeShadowNode, shadowNode, null);
 
       /* Sanitize tags and elements */
-      _sanitizeElements(shadowNode);
+      _sanitizeElements(shadowNode, fragment);
 
       /* Check attributes next */
       _sanitizeAttributes(shadowNode);
@@ -2052,12 +2066,13 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     }
 
     /* Get node iterator */
-    const nodeIterator = _createNodeIterator(inPlace ? dirty : body);
+    const walkRoot: Node = inPlace ? (dirty as Node) : body;
+    const nodeIterator = _createNodeIterator(walkRoot);
 
     /* Now start iterating over the created document */
     while ((currentNode = nodeIterator.nextNode())) {
       /* Sanitize tags and elements */
-      _sanitizeElements(currentNode);
+      _sanitizeElements(currentNode, walkRoot);
 
       /* Check attributes next */
       _sanitizeAttributes(currentNode);
