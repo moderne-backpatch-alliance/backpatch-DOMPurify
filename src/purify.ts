@@ -1411,9 +1411,15 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     /* Execute a hook if present */
     _executeHooks(hooks.beforeSanitizeElements, currentNode, null);
 
-    /* A hook may have detached the node — treat it as removed (see the
-       detached-node comment after the uponSanitizeElement hook below). */
+    /* A hook may have detached the node - treat it as removed (see the
+       detached-node comment after the uponSanitizeElement hook below). On
+       the IN_PLACE path, neutralize the detached subtree first so a queued
+       resource handler on it cannot fire in page scope after we return. */
     if (currentNode !== root && getParentNode(currentNode) === null) {
+      if (IN_PLACE) {
+        _neutralizeSubtree(currentNode);
+      }
+
       return true;
     }
 
@@ -1448,8 +1454,13 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
 
     /* A hook may have detached the node from the tree (issue #469 pattern):
        treat it as removed and stop processing it. The walk root is exempt.
-       Hook-detached nodes are not recorded in DOMPurify.removed. */
+       Hook-detached nodes are not recorded in DOMPurify.removed. On the
+       IN_PLACE path their subtree is neutralized inline here instead. */
     if (currentNode !== root && getParentNode(currentNode) === null) {
+      if (IN_PLACE) {
+        _neutralizeSubtree(currentNode);
+      }
+
       return true;
     }
 
