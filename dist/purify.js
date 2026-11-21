@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00015 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00015/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00016 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00016/LICENSE */
 
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
@@ -332,7 +332,7 @@
   function createDOMPurify() {
     let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
     const DOMPurify = root => createDOMPurify(root);
-    DOMPurify.version = '3.3.4-backpatch-00015';
+    DOMPurify.version = '3.3.4-backpatch-00016';
     DOMPurify.removed = [];
     if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
       // Not running in a browser, provide a factory function
@@ -1472,8 +1472,14 @@
           _removeAttribute(name, currentNode);
           continue;
         }
-        /* Make sure we cannot easily use animated hrefs, even if animations are allowed */
-        if (lcName === 'attributename' && stringMatch(value, 'href')) {
+        /* Make sure we cannot easily use animated hrefs, even if animations are
+           allowed. Compared case-insensitively on purpose: in
+           application/xhtml+xml mode lcName keeps its case, and the real SVG
+           attribute is spelled attributeName, which 'attributename' would
+           never match (GHSA-c6gr-qvv4-5v3f). In XHTML a lowercase
+           `attributename` is not the SMIL attribute, so also stripping it
+           there costs nothing. */
+        if (stringToLowerCase(name) === 'attributename' && stringMatch(value, 'href')) {
           _removeAttribute(name, currentNode);
           continue;
         }
