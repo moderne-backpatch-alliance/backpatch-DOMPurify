@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00006 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00006/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00007 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00007/LICENSE */
 
 'use strict';
 
@@ -307,7 +307,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00006';
+  DOMPurify.version = '3.3.4-backpatch-00007';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -703,6 +703,21 @@ function createDOMPurify() {
         emptyHTML = trustedTypesPolicy.createHTML('');
       }
     }
+    /*
+     * Mirror the clone-before-mutate pattern already applied above for
+     * cfg.ADD_TAGS / cfg.ADD_ATTR: if any uponSanitize* hook is
+     * registered AND the set still points at the default constant,
+     * clone it. The hook then mutates the clone (in-call widening
+     * still works exactly as documented) and the next default-cfg
+     * call rebinds to the untouched original via the reassignment at
+     * the top of this function.
+     */
+    if ((hooks.uponSanitizeElement.length > 0 || hooks.uponSanitizeAttribute.length > 0) && ALLOWED_TAGS === DEFAULT_ALLOWED_TAGS) {
+      ALLOWED_TAGS = clone(ALLOWED_TAGS);
+    }
+    if (hooks.uponSanitizeAttribute.length > 0 && ALLOWED_ATTR === DEFAULT_ALLOWED_ATTR) {
+      ALLOWED_ATTR = clone(ALLOWED_ATTR);
+    }
     // Prevent further manipulation of configuration.
     // Not available in IE8, Safari 5, etc.
     if (freeze) {
@@ -1030,10 +1045,17 @@ function createDOMPurify() {
           return false;
         }
       }
-      /* Keep content except for bad-listed elements */
+      /* Keep content except for bad-listed elements.
+         Use the cached prototype getters exclusively — the previous code
+         had `|| currentNode.parentNode` / `|| currentNode.childNodes`
+         fallbacks, but the cached getters always return the canonical
+         value (or null for a real parent-less node), so the fallback
+         path was dead in safe cases and a clobbering surface in unsafe
+         ones. Falsy cached results stay falsy; the `if (childNodes &&
+         parentNode)` check already gates correctly. */
       if (KEEP_CONTENT && !FORBID_CONTENTS[tagName]) {
-        const parentNode = getParentNode(currentNode) || currentNode.parentNode;
-        const childNodes = getChildNodes(currentNode) || currentNode.childNodes;
+        const parentNode = getParentNode(currentNode);
+        const childNodes = getChildNodes(currentNode);
         if (childNodes && parentNode) {
           const childCount = childNodes.length;
           for (let i = childCount - 1; i >= 0; --i) {
