@@ -954,6 +954,32 @@
         );
       }
     );
+    QUnit.test(
+      'CUSTOM_ELEMENT_HANDLING default must not inherit checks from Object.prototype',
+      function (assert) {
+        Object.prototype.tagNameCheck = /-/;
+        Object.prototype.attributeNameCheck = /^title$/;
+        try {
+          assert.equal(
+            DOMPurify.sanitize('<foo-bar title="x">abc</foo-bar>'),
+            'abc'
+          );
+          assert.equal(
+            DOMPurify.sanitize('<foo-bar title="x">abc</foo-bar>', {}),
+            'abc'
+          );
+          assert.equal(
+            DOMPurify.sanitize('<foo-bar title="x">abc</foo-bar>', {
+              CUSTOM_ELEMENT_HANDLING: null,
+            }),
+            'abc'
+          );
+        } finally {
+          delete Object.prototype.tagNameCheck;
+          delete Object.prototype.attributeNameCheck;
+        }
+      }
+    );
     QUnit.test('Test dirty being an array', function (assert) {
       assert.equal(
         DOMPurify.sanitize(['<a>123<b>456</b></a>']),
