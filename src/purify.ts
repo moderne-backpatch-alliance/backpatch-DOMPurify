@@ -1032,7 +1032,10 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         typeof element.setAttribute !== 'function' ||
         typeof element.namespaceURI !== 'string' ||
         typeof element.insertBefore !== 'function' ||
-        typeof element.hasChildNodes !== 'function')
+        typeof element.hasChildNodes !== 'function' ||
+        // Form [LegacyOverrideBuiltIns]: a child named "childNodes" makes the
+        // direct read diverge from the cached getter; typeof cannot see it.
+        element.childNodes !== getChildNodes(element))
     );
   };
 
@@ -1566,6 +1569,14 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
             'root node is forbidden and cannot be sanitized in-place'
           );
         }
+      }
+
+      /* A parent-less root cannot be removed by _forceRemove, and
+         _sanitizeAttributes skips clobbered nodes, so refuse it here. */
+      if (_isClobbered(dirty as Element)) {
+        throw typeErrorCreate(
+          'root node is clobbered and cannot be sanitized in-place'
+        );
       }
     } else if (dirty instanceof Node) {
       /* If dirty is a DOM element, append to an empty document to avoid
