@@ -1332,7 +1332,9 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     }
 
     /* Now let's check the element's type and name */
-    const tagName = transformCaseFunc(currentNode.nodeName);
+    const tagName = transformCaseFunc(
+      getNodeName ? getNodeName(currentNode) : currentNode.nodeName
+    );
 
     /* Close the pre-walk clone-guard's timing gap: an uponSanitizeElement
        hook may have been installed after that guard sampled the hook arrays

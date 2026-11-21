@@ -1074,6 +1074,29 @@
         window.xssed = false;
       }
     );
+    QUnit.test(
+      'Config-Flag tests: IN_PLACE own-property nodeName does not steer the element decision',
+      function (assert) {
+        var spoofed = function (tag) {
+          var node = document.createElement(tag);
+          Object.defineProperty(node, 'nodeName', {
+            value: 'DIV',
+            configurable: true,
+          });
+          return node;
+        };
+
+        var root = document.createElement('div');
+        root.appendChild(spoofed('script'));
+        root.appendChild(document.createElement('b'));
+        DOMPurify.sanitize(root, { IN_PLACE: true });
+        assert.equal(root.innerHTML, '<b></b>', 'child script removed');
+
+        assert.throws(function () {
+          DOMPurify.sanitize(spoofed('script'), { IN_PLACE: true });
+        }, 'root script still rejected');
+      }
+    );
     QUnit.test('Config-Flag tests: FORBID_TAGS', function (assert) {
       //FORBID_TAGS
       assert.equal(
