@@ -1,0 +1,21 @@
+schema: osera-patch-evidence/0.1.0
+producer: moderne
+release: 3.3.4-backpatch-00001
+baseline: v3.3.3+backpatch.baseline
+fixes:
+  - cve: CVE-2026-41238
+    upstream_fix_url: https://github.com/cure53/DOMPurify/commit/1a9422af1e8d1c200002d00dea71dbcf5cdf847b
+    advisory_url: https://nvd.nist.gov/vuln/detail/CVE-2026-41238
+    patch_commit_url: https://github.com/moderne-backpatch-alliance/backpatch-DOMPurify/compare/1cf1c38~1...ac9ea09
+    basis: adapted
+    artifacts:
+      - dompurify
+    note: "New in this release; upstream's fix in 3.4.0 (1a9422af), adapted to 3.3.3. It closes the advisory: DOMPurify: Prototype Pollution to XSS Bypass via CUSTOM_ELEMENT_HANDLING Fallback."
+tests:
+  commit: ac9ea096c3e676530c480f0e6690d9a61a4775d0
+  command: npm run build, npm pack; the packed package in a consumer, then NODE_ENV=test BABEL_ENV=rollup node test/jsdom-node-runner with test/jsdom-node.js loading DOMPurify through require('dompurify'), import 'dompurify', require('dompurify/purify.js') and require('dompurify/purify.min.js') in turn (repos/dompurify-3.3-verify/bin/tests.sh), TAP assertions as JUnit test cases
+  runtime: Node.js v22.23.2, npm 10.9.8, rollup 3.30.0, typescript 5.6.3, jsdom 20.0.3, qunit 2.17.2, macOS 27.2 arm64
+  report: dompurify-3.3.4-backpatch-00001-tests.zip
+  report_sha256: 9359d69d73434e15accd1d2aebdc614b614d8380f210829de4c50b90163c70c0
+  result: pass
+  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 3688 tests, 3688 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 12 tests, 0 passed, 12 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 12 tests, 12 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
