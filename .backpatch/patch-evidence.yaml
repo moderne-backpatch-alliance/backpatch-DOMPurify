@@ -1,6 +1,6 @@
 schema: osera-patch-evidence/0.1.0
 producer: moderne
-release: 3.3.4-backpatch-00007
+release: 3.3.4-backpatch-00008
 baseline: v3.3.3+backpatch.baseline
 fixes:
   - cve: CVE-2026-41238
@@ -66,12 +66,20 @@ fixes:
     basis: adapted
     artifacts:
       - dompurify
-    note: "New in this release; upstream's fix in 3.4.7 (88d84209), adapted to 3.3.3. It closes the advisory: DOMPurify: Hook mutation of `data.allowedTags` / `data.allowedAttributes` permanently pollutes `DEFAULT_ALLOWED_TAGS` / `DEFAULT_ALLOWED_ATTR`."
+    note: "Carried from 3.3.4-backpatch-00007; upstream's fix in 3.4.7 (88d84209), adapted to 3.3.3. It closes the advisory: DOMPurify: Hook mutation of `data.allowedTags` / `data.allowedAttributes` permanently pollutes `DEFAULT_ALLOWED_TAGS` / `DEFAULT_ALLOWED_ATTR`."
+  - cve: CVE-2026-65898
+    upstream_fix_url: https://github.com/cure53/DOMPurify/commit/011bc3b2fcc4be17aa76f9030e8668207717acb9
+    advisory_url: https://nvd.nist.gov/vuln/detail/CVE-2026-65898
+    patch_commit_url: https://github.com/moderne-backpatch-alliance/backpatch-DOMPurify/compare/0efcb47~1...f8bf0e5
+    basis: adapted
+    artifacts:
+      - dompurify
+    note: "New in this release; upstream's fix in 3.4.13 (011bc3b2, in 3.4.11, and its repair 0332fe7c, in 3.4.13), adapted to 3.3.3. It closes the advisory: DOMPurify: Permanent `ALLOWED_ATTR` pollution via `setConfig()` bypassing the hook clone-guard (incomplete fix of the 3.4.7 hook-pollution patch)."
 tests:
-  commit: 037e7f17e879a563118fabc58d865444cb093b99
+  commit: f8bf0e5dc553fb2932541687d72c1ce35e99bfec
   command: npm run build, npm pack; the packed package in a consumer, then NODE_ENV=test BABEL_ENV=rollup node test/jsdom-node-runner with test/jsdom-node.js loading DOMPurify through require('dompurify'), import 'dompurify', require('dompurify/purify.js') and require('dompurify/purify.min.js') in turn (repos/dompurify-3.3-verify/bin/tests.sh), TAP assertions as JUnit test cases
   runtime: Node.js v22.23.2, npm 10.9.8, rollup 3.30.0, typescript 5.6.3, jsdom 20.0.3, qunit 2.17.2, macOS 27.2 arm64
-  report: dompurify-3.3.4-backpatch-00007-tests.zip
-  report_sha256: 8be4a3ff3185945c558174961ab5eaf3e9f722920ebcabd95c1fafb9ad2fd7c4
+  report: dompurify-3.3.4-backpatch-00008-tests.zip
+  report_sha256: dbee5e7cec011a46a5d71431367daf6e3bbaf72554a988d3ba8a0fc0d13e6100
   result: pass
-  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 3980 tests, 3980 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 64 tests, 44 passed, 20 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 64 tests, 64 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
+  note: "upstream's jsdom QUnit suite (test/jsdom-node-runner) through each of the package's four entry points (the bootstrap tests load dist/purify.min.js for the min entry, dist/purify.js otherwise) at the tested commit: 4024 tests, 4024 passed, 0 failed, 0 skipped. The CVE tests (test/test-suite.js), with this release's production lines reverted at the tested commit: 52 tests, 16 passed, 36 failed, 0 skipped, test files exiting non-zero: cjs esm umd min; with them: 52 tests, 52 passed, 0 failed, 0 skipped. Built with npm run build (tsc, rollup) in a directory named dompurify, 2 of npmjs's 13 files for 3.3.3 are identical; the rest are dist/purify.cjs.d.ts, dist/purify.cjs.js, dist/purify.cjs.js.map, dist/purify.es.d.mts, dist/purify.es.mjs, dist/purify.es.mjs.map, dist/purify.js, dist/purify.js.map, dist/purify.min.js, dist/purify.min.js.map, package.json. The archive's file-origins.yaml maps each packaged file to the commit, or names its inputs and build."
