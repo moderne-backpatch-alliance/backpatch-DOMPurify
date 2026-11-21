@@ -185,25 +185,61 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
   let trustedTypesPolicy;
   let emptyHTML = '';
 
-  // A policy whose createHTML calls DOMPurify.sanitize would recurse until the
-  // stack overflows (#1422); this re-entry guard throws a clear error instead.
-  let IN_POLICY_CREATE_HTML = 0;
-  const _createTrustedHTML = function (html: string): string {
-    if (IN_POLICY_CREATE_HTML > 0) {
+  // The instance's own Trusted Types policy: created at most once (duplicate
+  // policy names throw) and the only policy that survives clearConfig().
+  let defaultTrustedTypesPolicy;
+  let defaultTrustedTypesPolicyResolved = false;
+
+  // A policy callback (createHTML or createScriptURL) that calls
+  // DOMPurify.sanitize would recurse until the stack overflows (#1422); this
+  // re-entry guard, shared by both callbacks, throws a clear error instead.
+  let IN_TRUSTED_TYPES_POLICY = 0;
+  const _assertNotInTrustedTypesPolicy = function (): void {
+    if (IN_TRUSTED_TYPES_POLICY > 0) {
       throw typeErrorCreate(
-        'The configured TRUSTED_TYPES_POLICY.createHTML must not call ' +
-          'DOMPurify.sanitize, as that causes infinite recursion. Do not pass ' +
-          'a policy whose createHTML wraps DOMPurify as TRUSTED_TYPES_POLICY; ' +
-          'see the "DOMPurify and Trusted Types" section of the README.'
+        'A configured TRUSTED_TYPES_POLICY callback (createHTML or ' +
+          'createScriptURL) must not call DOMPurify.sanitize, as that causes ' +
+          'infinite recursion. Do not pass a policy whose callbacks wrap ' +
+          'DOMPurify as TRUSTED_TYPES_POLICY; see the "DOMPurify and Trusted ' +
+          'Types" section of the README.'
       );
     }
+  };
 
-    IN_POLICY_CREATE_HTML++;
+  const _createTrustedHTML = function (html: string): string {
+    _assertNotInTrustedTypesPolicy();
+
+    IN_TRUSTED_TYPES_POLICY++;
     try {
       return trustedTypesPolicy.createHTML(html);
     } finally {
-      IN_POLICY_CREATE_HTML--;
+      IN_TRUSTED_TYPES_POLICY--;
     }
+  };
+
+  const _createTrustedScriptURL = function (scriptUrl: string): string {
+    _assertNotInTrustedTypesPolicy();
+
+    IN_TRUSTED_TYPES_POLICY++;
+    try {
+      return trustedTypesPolicy.createScriptURL(scriptUrl);
+    } finally {
+      IN_TRUSTED_TYPES_POLICY--;
+    }
+  };
+
+  // Resolved at most once: createPolicy throws on a duplicate name, and a
+  // failed or unsupported attempt must not be retried on every parse.
+  const _getDefaultTrustedTypesPolicy = function () {
+    if (!defaultTrustedTypesPolicyResolved) {
+      defaultTrustedTypesPolicy = _createTrustedTypesPolicy(
+        trustedTypes,
+        currentScript
+      );
+      defaultTrustedTypesPolicyResolved = true;
+    }
+
+    return defaultTrustedTypesPolicy;
   };
 
   const {
@@ -739,6 +775,8 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       delete FORBID_TAGS.tbody;
     }
 
+    // A caller policy must not outlive clearConfig() or TRUSTED_TYPES_POLICY:
+    // null, or it signs later RETURN_TRUSTED_TYPE output. GHSA-vxr8-fq34-vvx9.
     if (cfg.TRUSTED_TYPES_POLICY) {
       if (typeof cfg.TRUSTED_TYPES_POLICY.createHTML !== 'function') {
         throw typeErrorCreate(
@@ -752,7 +790,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         );
       }
 
-      // Overwrite existing TrustedTypes policy.
+      // A caller-supplied policy applies to this configuration only.
       const previousTrustedTypesPolicy = trustedTypesPolicy;
       trustedTypesPolicy = cfg.TRUSTED_TYPES_POLICY;
 
@@ -765,21 +803,21 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         trustedTypesPolicy = previousTrustedTypesPolicy;
         throw error;
       }
+    } else if (cfg.TRUSTED_TYPES_POLICY === null) {
+      // Opt-out for this call: no signing, nothing created (#1422). undefined,
+      // not null, drops a retained caller policy and lets the next config-less
+      // call restore the internal one. See GHSA-vxr8-fq34-vvx9.
+      trustedTypesPolicy = undefined;
+      emptyHTML = '';
     } else {
-      // Uninitialized policy, attempt to initialize the internal dompurify policy.
-      if (
-        trustedTypesPolicy === undefined &&
-        cfg.TRUSTED_TYPES_POLICY !== null
-      ) {
-        trustedTypesPolicy = _createTrustedTypesPolicy(
-          trustedTypes,
-          currentScript
-        );
+      // A previously supplied policy stays active across config-less calls on
+      // purpose; only clearConfig() or null drops it.
+      if (trustedTypesPolicy === undefined) {
+        trustedTypesPolicy = _getDefaultTrustedTypesPolicy();
       }
 
-      // If creating the internal policy succeeded sign internal variables.
-      // A falsy policy (creation failed or skipped, or not yet initialized)
-      // must be excluded, or `.createHTML` is called on a non-policy. See #1422.
+      // Sign internal variables only when a policy is active, so `.createHTML`
+      // is never called on a non-policy. See #1422.
       if (trustedTypesPolicy && typeof emptyHTML === 'string') {
         emptyHTML = _createTrustedHTML('');
       }
@@ -952,7 +990,17 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       // eslint-disable-next-line unicorn/prefer-dom-node-remove
       getParentNode(node).removeChild(node);
     } catch (_) {
+      /* The remove() fallback is a no-op on a parentless node (an IN_PLACE
+         root), which would come back intact: fail closed by throwing, never by
+         neutralizing it via its clobberable methods. GHSA-r47g-fvhr-h676. */
       remove(node);
+
+      if (!getParentNode(node)) {
+        throw typeErrorCreate(
+          'a node selected for removal could not be detached from its tree ' +
+            'and cannot be safely returned; refusing to sanitize in place'
+        );
+      }
     }
   };
 
@@ -1628,7 +1676,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
             }
 
             case 'TrustedScriptURL': {
-              value = trustedTypesPolicy.createScriptURL(value);
+              value = _createTrustedScriptURL(value);
               break;
             }
 
@@ -1839,12 +1887,11 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     /* Clean up removed elements */
     DOMPurify.removed = [];
 
-    /* Check if dirty is correctly typed for IN_PLACE */
-    if (typeof dirty === 'string') {
-      IN_PLACE = false;
-    }
+    /* Resolved per call: writing IN_PLACE here would leak under setConfig(),
+       and one string call would leave later in-place nodes unsanitized. */
+    const inPlace = IN_PLACE && typeof dirty !== 'string' && _isNode(dirty);
 
-    if (IN_PLACE) {
+    if (inPlace) {
       /* Do some early pre-sanitization to avoid unsafe root nodes */
       if ((dirty as Node).nodeName) {
         const tagName = transformCaseFunc((dirty as Node).nodeName);
@@ -1917,7 +1964,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     }
 
     /* Get node iterator */
-    const nodeIterator = _createNodeIterator(IN_PLACE ? dirty : body);
+    const nodeIterator = _createNodeIterator(inPlace ? dirty : body);
 
     /* Now start iterating over the created document */
     while ((currentNode = nodeIterator.nextNode())) {
@@ -1935,7 +1982,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     }
 
     /* If we sanitized `dirty` in-place, return it. */
-    if (IN_PLACE) {
+    if (inPlace) {
       return dirty;
     }
 
@@ -2014,6 +2061,11 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     SET_CONFIG = false;
     SET_CONFIG_ALLOWED_TAGS = null;
     SET_CONFIG_ALLOWED_ATTR = null;
+
+    // Drop a caller policy so it cannot sign later RETURN_TRUSTED_TYPE output;
+    // the cached internal one is restored. See GHSA-vxr8-fq34-vvx9.
+    trustedTypesPolicy = defaultTrustedTypesPolicy;
+    emptyHTML = '';
   };
 
   DOMPurify.isValidAttribute = function (tag, attr, value) {
