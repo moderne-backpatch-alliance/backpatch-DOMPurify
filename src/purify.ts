@@ -26,6 +26,7 @@ import {
   stringTrim,
   regExpTest,
   typeErrorCreate,
+  lookupAccessor,
   lookupGetter,
   create,
   objectHasOwnProperty,
@@ -168,6 +169,15 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeType') : null;
   const getNodeName =
     Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeName') : null;
+
+  /* Element namespace through the cached Element.prototype getter, so a live
+     node's own-property override cannot steer namespace decisions. */
+  const getNamespaceURI = lookupAccessor(ElementPrototype, 'namespaceURI');
+  const _readNamespaceURI = function (element: Element): string | null {
+    return getNamespaceURI
+      ? getNamespaceURI(element)
+      : (element as any).namespaceURI;
+  };
 
   // As per issue #47, the web-components registry is inherited by a
   // new document created via createHTMLDocument. As per the spec
@@ -876,25 +886,38 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
    *  return. Return true otherwise.
    */
   const _checkValidNamespace = function (element: Element): boolean {
-    let parent = getParentNode(element);
+    /* Names and namespaces come from the cached prototype getters: own-property
+       tagName / namespaceURI overrides on a live IN_PLACE node must not steer
+       this (same root cause as GHSA-x4vx-rjvf-j5p4). */
+    const elementNamespace = _readNamespaceURI(element);
+    const tagName = stringToLowerCase(
+      getNodeName ? getNodeName(element) : element.nodeName
+    );
 
-    // In JSDOM, if we're inside shadow DOM, then parentNode
-    // can be null. We just simulate parent in this case.
-    if (!parent || !parent.tagName) {
-      parent = {
-        namespaceURI: NAMESPACE,
-        tagName: 'template',
-      };
+    // A missing parent (JSDOM inside shadow DOM) or a non-element parent
+    // is simulated as a <template> in the configured namespace.
+    const parentNode = getParentNode(element);
+    let parent: { namespaceURI: string | null };
+    let parentTagName: string;
+    if (
+      parentNode &&
+      (getNodeType ? getNodeType(parentNode) : parentNode.nodeType) ===
+        NODE_TYPE.element
+    ) {
+      parent = { namespaceURI: _readNamespaceURI(parentNode) };
+      parentTagName = stringToLowerCase(
+        getNodeName ? getNodeName(parentNode) : parentNode.nodeName
+      );
+    } else {
+      parent = { namespaceURI: NAMESPACE };
+      parentTagName = 'template';
     }
 
-    const tagName = stringToLowerCase(element.tagName);
-    const parentTagName = stringToLowerCase(parent.tagName);
-
-    if (!ALLOWED_NAMESPACES[element.namespaceURI]) {
+    if (!ALLOWED_NAMESPACES[elementNamespace]) {
       return false;
     }
 
-    if (element.namespaceURI === SVG_NAMESPACE) {
+    if (elementNamespace === SVG_NAMESPACE) {
       // The only way to switch from HTML namespace to SVG
       // is via <svg>. If it happens via any other tag, then
       // it should be killed.
@@ -918,7 +941,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       return Boolean(ALL_SVG_TAGS[tagName]);
     }
 
-    if (element.namespaceURI === MATHML_NAMESPACE) {
+    if (elementNamespace === MATHML_NAMESPACE) {
       // The only way to switch from HTML namespace to MathML
       // is via <math>. If it happens via any other tag, then
       // it should be killed.
@@ -937,7 +960,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       return Boolean(ALL_MATHML_TAGS[tagName]);
     }
 
-    if (element.namespaceURI === HTML_NAMESPACE) {
+    if (elementNamespace === HTML_NAMESPACE) {
       // The only way to switch from SVG to HTML is via
       // HTML integration points, and from MathML to HTML
       // is via MathML text integration points
@@ -966,7 +989,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     // For XHTML and XML documents that support custom namespaces
     if (
       PARSER_MEDIA_TYPE === 'application/xhtml+xml' &&
-      ALLOWED_NAMESPACES[element.namespaceURI]
+      ALLOWED_NAMESPACES[elementNamespace]
     ) {
       return true;
     }

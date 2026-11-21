@@ -1117,6 +1117,83 @@
       }
     );
 
+    // Namespace validation reads each node's name and namespace through the
+    // cached prototype getters. A live node can carry own-property overrides
+    // (Object.defineProperty) of tagName / namespaceURI; trusting those let a
+    // namespace-confused node pose as a plain element, or a parent pose as an
+    // integration point. Same root cause as GHSA-x4vx-rjvf-j5p4 (nodeName).
+    QUnit.test(
+      'IN_PLACE: own-property tagName / namespaceURI overrides do not steer namespace validation',
+      (assert) => {
+        const HTML_NS = 'http://www.w3.org/1999/xhtml';
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        const MATH_NS = 'http://www.w3.org/1998/Math/MathML';
+        const run = (spoof) => {
+          const root = document.createElement('div');
+          // An HTML-namespace <svg> is something no HTML parser produces.
+          const confused = document.createElementNS(HTML_NS, 'svg');
+          spoof(confused);
+          root.appendChild(confused);
+          DOMPurify.sanitize(root, { IN_PLACE: true });
+          return root.innerHTML;
+        };
+
+        assert.equal(
+          run(() => {}),
+          '',
+          'control: HTML-namespace <svg> removed'
+        );
+        assert.equal(
+          run((node) =>
+            Object.defineProperty(node, 'tagName', { value: 'DIV' })
+          ),
+          '',
+          'own tagName "DIV" does not hide it'
+        );
+        // Only meaningful where namespaceURI is a prototype getter (browsers,
+        // jsdom). A DOM that stores it as a plain instance property (e.g. the
+        // parse5-based purify-edge window) has no separate "real" namespace:
+        // overriding the property changes the namespace itself.
+        let proto = window.Element && window.Element.prototype;
+        let hasNamespaceGetter = false;
+        while (proto && !hasNamespaceGetter) {
+          const desc = Object.getOwnPropertyDescriptor(proto, 'namespaceURI');
+          hasNamespaceGetter = Boolean(desc && desc.get);
+          proto = Object.getPrototypeOf(proto);
+        }
+
+        if (hasNamespaceGetter) {
+          assert.equal(
+            run((node) =>
+              Object.defineProperty(node, 'namespaceURI', { value: SVG_NS })
+            ),
+            '',
+            'own namespaceURI (SVG) does not hide it'
+          );
+        } else {
+          assert.ok(
+            true,
+            'namespaceURI is not a prototype getter here; skipped'
+          );
+        }
+
+        // <svg> directly under MathML <mrow> is invalid; <mtext> would be a
+        // text integration point.
+        const root = document.createElement('div');
+        const math = document.createElementNS(MATH_NS, 'math');
+        const mrow = document.createElementNS(MATH_NS, 'mrow');
+        Object.defineProperty(mrow, 'tagName', { value: 'mtext' });
+        mrow.appendChild(document.createElementNS(SVG_NS, 'svg'));
+        math.appendChild(mrow);
+        root.appendChild(math);
+        DOMPurify.sanitize(root, { IN_PLACE: true });
+        assert.notOk(
+          root.querySelector('svg'),
+          'a parent posing as <mtext> does not admit an SVG child'
+        );
+      }
+    );
+
     QUnit.test('Config-Flag tests: FORBID_TAGS', function (assert) {
       //FORBID_TAGS
       assert.equal(
