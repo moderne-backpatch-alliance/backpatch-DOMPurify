@@ -1063,6 +1063,68 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
   };
 
   /**
+   * _stripDisallowedAttributes
+   *
+   * Removes every attribute the active configuration does not allow from a
+   * single element, using the same allowlist as the main attribute pass (so
+   * `on*` handlers go, but no `/^on/` blocklist is introduced). Used only to
+   * neutralise nodes that are being discarded from an in-place tree.
+   *
+   * @param element the element to strip
+   */
+  const _stripDisallowedAttributes = function (element: Element): void {
+    const attributes = element.attributes;
+    if (!attributes) {
+      return;
+    }
+
+    for (let i = attributes.length - 1; i >= 0; --i) {
+      const attribute = attributes[i];
+      const name = attribute && attribute.name;
+      if (typeof name !== 'string' || ALLOWED_ATTR[transformCaseFunc(name)]) {
+        continue;
+      }
+
+      try {
+        element.removeAttribute(name);
+      } catch (_) {
+        /* Clobbered removeAttribute on a doomed node — ignore */
+      }
+    }
+  };
+
+  /**
+   * _neutralizeSubtree
+   *
+   * Strips every attribute the active configuration does not allow from a
+   * subtree that leaves an IN_PLACE tree, so a queued resource handler on it
+   * cannot fire after sanitize returns. Hook-free by design.
+   *
+   * @param root the root of a removed subtree to neutralise
+   */
+  const _neutralizeSubtree = function (root: Node): void {
+    const stack: Node[] = [root];
+
+    while (stack.length > 0) {
+      const node = stack.pop();
+      const nodeType = (node as any).nodeType;
+
+      if (nodeType === NODE_TYPE.element) {
+        _stripDisallowedAttributes(node as Element);
+      }
+
+      const childNodes = getChildNodes
+        ? getChildNodes(node)
+        : (node as Element).childNodes;
+      if (childNodes) {
+        for (let i = childNodes.length - 1; i >= 0; --i) {
+          stack.push(childNodes[i]);
+        }
+      }
+    }
+  };
+
+  /**
    * _initDocument
    *
    * @param dirty - a string of dirty markup
