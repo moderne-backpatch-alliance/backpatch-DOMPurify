@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00014 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00014/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00015 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00015/LICENSE */
 
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
@@ -332,7 +332,7 @@
   function createDOMPurify() {
     let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
     const DOMPurify = root => createDOMPurify(root);
-    DOMPurify.version = '3.3.4-backpatch-00014';
+    DOMPurify.version = '3.3.4-backpatch-00015';
     DOMPurify.removed = [];
     if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
       // Not running in a browser, provide a factory function
@@ -1764,6 +1764,18 @@
       }
       /* If we sanitized `dirty` in-place, return it. */
       if (inPlace) {
+        /* A force-removed root (mXSS canary, clobbered, ...) is detached and may
+           still carry a literal `</tag>` payload; there is no safe node to hand
+           back, so fail closed instead of returning it. */
+        let rootWasRemoved = false;
+        arrayForEach(DOMPurify.removed, entry => {
+          if (entry.element && entry.element === dirty) {
+            rootWasRemoved = true;
+          }
+        });
+        if (rootWasRemoved) {
+          throw typeErrorCreate('a node selected for removal could not be safely returned; ' + 'refusing to sanitize in place');
+        }
         if (SAFE_FOR_TEMPLATES) {
           _scrubTemplateExpressions(dirty);
         }
