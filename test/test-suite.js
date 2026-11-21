@@ -753,6 +753,28 @@
       assert.equal(dirty.href, ''); // should still sanitize
     });
     QUnit.test(
+      'Config-Flag tests: SAFE_FOR_TEMPLATES pins RETURN_DOM_FRAGMENT scrub behavior',
+      function (assert) {
+        // RETURN_DOM_FRAGMENT was fixed alongside RETURN_DOM in CVE-2026-41239
+        // (both reach the body.innerHTML scrub). Pinning the fragment path
+        // here so future refactors of the post-walk return logic do not
+        // silently regress it.
+        var result = DOMPurify.sanitize(
+          '<div>{<foo></foo>{constructor.constructor("alert(1)")()}<foo></foo>}</div>',
+          {
+            SAFE_FOR_TEMPLATES: true,
+            RETURN_DOM_FRAGMENT: true,
+          }
+        );
+        var container = document.createElement('div');
+        container.appendChild(result);
+        assert.notOk(
+          /\{\{[\s\S]*\}\}/.test(container.innerHTML),
+          'merged Mustache expression should be scrubbed in fragment mode'
+        );
+      }
+    );
+    QUnit.test(
       'Config-Flag tests: IN_PLACE insecure root-nodes',
       function (assert) {
         //IN_PLACE with insecure root node (script)
