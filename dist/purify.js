@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00008 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00008/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00009 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00009/LICENSE */
 
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
@@ -311,7 +311,7 @@
   function createDOMPurify() {
     let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
     const DOMPurify = root => createDOMPurify(root);
-    DOMPurify.version = '3.3.4-backpatch-00008';
+    DOMPurify.version = '3.3.4-backpatch-00009';
     DOMPurify.removed = [];
     if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
       // Not running in a browser, provide a factory function
@@ -358,6 +358,46 @@
     }
     let trustedTypesPolicy;
     let emptyHTML = '';
+    // The instance's own Trusted Types policy: created at most once (duplicate
+    // policy names throw) and the only policy that survives clearConfig().
+    let defaultTrustedTypesPolicy;
+    let defaultTrustedTypesPolicyResolved = false;
+    // A policy callback (createHTML or createScriptURL) that calls
+    // DOMPurify.sanitize would recurse until the stack overflows (#1422); this
+    // re-entry guard, shared by both callbacks, throws a clear error instead.
+    let IN_TRUSTED_TYPES_POLICY = 0;
+    const _assertNotInTrustedTypesPolicy = function _assertNotInTrustedTypesPolicy() {
+      if (IN_TRUSTED_TYPES_POLICY > 0) {
+        throw typeErrorCreate('A configured TRUSTED_TYPES_POLICY callback (createHTML or ' + 'createScriptURL) must not call DOMPurify.sanitize, as that causes ' + 'infinite recursion. Do not pass a policy whose callbacks wrap ' + 'DOMPurify as TRUSTED_TYPES_POLICY; see the "DOMPurify and Trusted ' + 'Types" section of the README.');
+      }
+    };
+    const _createTrustedHTML = function _createTrustedHTML(html) {
+      _assertNotInTrustedTypesPolicy();
+      IN_TRUSTED_TYPES_POLICY++;
+      try {
+        return trustedTypesPolicy.createHTML(html);
+      } finally {
+        IN_TRUSTED_TYPES_POLICY--;
+      }
+    };
+    const _createTrustedScriptURL = function _createTrustedScriptURL(scriptUrl) {
+      _assertNotInTrustedTypesPolicy();
+      IN_TRUSTED_TYPES_POLICY++;
+      try {
+        return trustedTypesPolicy.createScriptURL(scriptUrl);
+      } finally {
+        IN_TRUSTED_TYPES_POLICY--;
+      }
+    };
+    // Resolved at most once: createPolicy throws on a duplicate name, and a
+    // failed or unsupported attempt must not be retried on every parse.
+    const _getDefaultTrustedTypesPolicy = function _getDefaultTrustedTypesPolicy() {
+      if (!defaultTrustedTypesPolicyResolved) {
+        defaultTrustedTypesPolicy = _createTrustedTypesPolicy(trustedTypes, currentScript);
+        defaultTrustedTypesPolicyResolved = true;
+      }
+      return defaultTrustedTypesPolicy;
+    };
     const {
       implementation,
       createNodeIterator,
@@ -693,6 +733,8 @@
         addToSet(ALLOWED_TAGS, ['tbody']);
         delete FORBID_TAGS.tbody;
       }
+      // A caller policy must not outlive clearConfig() or TRUSTED_TYPES_POLICY:
+      // null, or it signs later RETURN_TRUSTED_TYPE output. GHSA-vxr8-fq34-vvx9.
       if (cfg.TRUSTED_TYPES_POLICY) {
         if (typeof cfg.TRUSTED_TYPES_POLICY.createHTML !== 'function') {
           throw typeErrorCreate('TRUSTED_TYPES_POLICY configuration option must provide a "createHTML" hook.');
@@ -700,18 +742,34 @@
         if (typeof cfg.TRUSTED_TYPES_POLICY.createScriptURL !== 'function') {
           throw typeErrorCreate('TRUSTED_TYPES_POLICY configuration option must provide a "createScriptURL" hook.');
         }
-        // Overwrite existing TrustedTypes policy.
+        // A caller-supplied policy applies to this configuration only.
+        const previousTrustedTypesPolicy = trustedTypesPolicy;
         trustedTypesPolicy = cfg.TRUSTED_TYPES_POLICY;
-        // Sign local variables required by `sanitize`.
-        emptyHTML = trustedTypesPolicy.createHTML('');
-      } else {
-        // Uninitialized policy, attempt to initialize the internal dompurify policy.
-        if (trustedTypesPolicy === undefined) {
-          trustedTypesPolicy = _createTrustedTypesPolicy(trustedTypes, currentScript);
+        // Sign local variables required by `sanitize`. A circular policy throws
+        // via the re-entry guard; restore the previous one so the instance is not
+        // left poisoned. See #1422.
+        try {
+          emptyHTML = _createTrustedHTML('');
+        } catch (error) {
+          trustedTypesPolicy = previousTrustedTypesPolicy;
+          throw error;
         }
-        // If creating the internal policy succeeded sign internal variables.
-        if (trustedTypesPolicy !== null && typeof emptyHTML === 'string') {
-          emptyHTML = trustedTypesPolicy.createHTML('');
+      } else if (cfg.TRUSTED_TYPES_POLICY === null) {
+        // Opt-out for this call: no signing, nothing created (#1422). undefined,
+        // not null, drops a retained caller policy and lets the next config-less
+        // call restore the internal one. See GHSA-vxr8-fq34-vvx9.
+        trustedTypesPolicy = undefined;
+        emptyHTML = '';
+      } else {
+        // A previously supplied policy stays active across config-less calls on
+        // purpose; only clearConfig() or null drops it.
+        if (trustedTypesPolicy === undefined) {
+          trustedTypesPolicy = _getDefaultTrustedTypesPolicy();
+        }
+        // Sign internal variables only when a policy is active, so `.createHTML`
+        // is never called on a non-policy. See #1422.
+        if (trustedTypesPolicy && typeof emptyHTML === 'string') {
+          emptyHTML = _createTrustedHTML('');
         }
       }
       /*
@@ -832,7 +890,13 @@
         // eslint-disable-next-line unicorn/prefer-dom-node-remove
         getParentNode(node).removeChild(node);
       } catch (_) {
+        /* The remove() fallback is a no-op on a parentless node (an IN_PLACE
+           root), which would come back intact: fail closed by throwing, never by
+           neutralizing it via its clobberable methods. GHSA-r47g-fvhr-h676. */
         remove(node);
+        if (!getParentNode(node)) {
+          throw typeErrorCreate('a node selected for removal could not be detached from its tree ' + 'and cannot be safely returned; refusing to sanitize in place');
+        }
       }
     };
     /**
@@ -888,7 +952,7 @@
         // Root of XHTML doc must contain xmlns declaration (see https://www.w3.org/TR/xhtml1/normative.html#strict)
         dirty = '<html xmlns="http://www.w3.org/1999/xhtml"><head></head><body>' + dirty + '</body></html>';
       }
-      const dirtyPayload = trustedTypesPolicy ? trustedTypesPolicy.createHTML(dirty) : dirty;
+      const dirtyPayload = trustedTypesPolicy ? _createTrustedHTML(dirty) : dirty;
       /*
        * Use the DOMParser API by default, fallback later if needs be
        * DOMParser not work for svg when has multiple root element.
@@ -1285,12 +1349,12 @@
             switch (trustedTypes.getAttributeType(lcTag, lcName)) {
               case 'TrustedHTML':
                 {
-                  value = trustedTypesPolicy.createHTML(value);
+                  value = _createTrustedHTML(value);
                   break;
                 }
               case 'TrustedScriptURL':
                 {
-                  value = trustedTypesPolicy.createScriptURL(value);
+                  value = _createTrustedScriptURL(value);
                   break;
                 }
             }
@@ -1465,11 +1529,10 @@
       }
       /* Clean up removed elements */
       DOMPurify.removed = [];
-      /* Check if dirty is correctly typed for IN_PLACE */
-      if (typeof dirty === 'string') {
-        IN_PLACE = false;
-      }
-      if (IN_PLACE) {
+      /* Resolved per call: writing IN_PLACE here would leak under setConfig(),
+         and one string call would leave later in-place nodes unsanitized. */
+      const inPlace = IN_PLACE && typeof dirty !== 'string' && _isNode(dirty);
+      if (inPlace) {
         /* Do some early pre-sanitization to avoid unsafe root nodes */
         if (dirty.nodeName) {
           const tagName = transformCaseFunc(dirty.nodeName);
@@ -1508,7 +1571,7 @@
         if (!RETURN_DOM && !SAFE_FOR_TEMPLATES && !WHOLE_DOCUMENT &&
         // eslint-disable-next-line unicorn/prefer-includes
         dirty.indexOf('<') === -1) {
-          return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? trustedTypesPolicy.createHTML(dirty) : dirty;
+          return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? _createTrustedHTML(dirty) : dirty;
         }
         /* Initialize the document to work on */
         body = _initDocument(dirty);
@@ -1522,7 +1585,7 @@
         _forceRemove(body.firstChild);
       }
       /* Get node iterator */
-      const nodeIterator = _createNodeIterator(IN_PLACE ? dirty : body);
+      const nodeIterator = _createNodeIterator(inPlace ? dirty : body);
       /* Now start iterating over the created document */
       while (currentNode = nodeIterator.nextNode()) {
         /* Sanitize tags and elements */
@@ -1536,7 +1599,7 @@
         }
       }
       /* If we sanitized `dirty` in-place, return it. */
-      if (IN_PLACE) {
+      if (inPlace) {
         return dirty;
       }
       /* Return sanitized string or DOM */
@@ -1581,7 +1644,7 @@
           serializedHTML = stringReplace(serializedHTML, expr, ' ');
         });
       }
-      return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? trustedTypesPolicy.createHTML(serializedHTML) : serializedHTML;
+      return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? _createTrustedHTML(serializedHTML) : serializedHTML;
     };
     DOMPurify.setConfig = function () {
       let cfg = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
@@ -1595,6 +1658,10 @@
       SET_CONFIG = false;
       SET_CONFIG_ALLOWED_TAGS = null;
       SET_CONFIG_ALLOWED_ATTR = null;
+      // Drop a caller policy so it cannot sign later RETURN_TRUSTED_TYPE output;
+      // the cached internal one is restored. See GHSA-vxr8-fq34-vvx9.
+      trustedTypesPolicy = defaultTrustedTypesPolicy;
+      emptyHTML = '';
     };
     DOMPurify.isValidAttribute = function (tag, attr, value) {
       /* Initialize shared config vars if necessary. */
