@@ -4234,5 +4234,56 @@
         'merged expression inside nested template.content should be scrubbed'
       );
     });
+
+    QUnit.test(
+      'SAFE_FOR_TEMPLATES scrubs closed expressions split across text nodes in template.content',
+      (assert) => {
+        const build = function (wrapInTemplate) {
+          const dirty = document.createElement('div');
+          const tmpl = document.createElement('template');
+          tmpl.content.appendChild(document.createTextNode('$'));
+          tmpl.content.appendChild(document.createTextNode('{x}'));
+          tmpl.content.appendChild(document.createTextNode('{'));
+          tmpl.content.appendChild(document.createTextNode('{y}'));
+          tmpl.content.appendChild(document.createTextNode('}'));
+          if (wrapInTemplate) {
+            const outer = document.createElement('template');
+            outer.content.appendChild(tmpl);
+            dirty.appendChild(outer);
+          } else {
+            dirty.appendChild(tmpl);
+          }
+
+          return dirty;
+        };
+
+        const contentText = function (root, nested) {
+          let tmpl = root.querySelector('template');
+          if (nested) {
+            tmpl = tmpl.content.querySelector('template');
+          }
+
+          tmpl.content.normalize();
+          return tmpl.content.textContent;
+        };
+
+        const cases = [
+          ['RETURN_DOM', false],
+          ['IN_PLACE', false],
+          ['RETURN_DOM', true],
+        ];
+        cases.forEach(([mode, nested]) => {
+          const dirty = build(nested);
+          const config = { SAFE_FOR_TEMPLATES: true };
+          config[mode] = true;
+          const result = DOMPurify.sanitize(dirty, config);
+          const root = mode === 'IN_PLACE' ? dirty : result;
+          const text = contentText(root, nested);
+          const label = mode + (nested ? ' nested' : '');
+          assert.notOk(/\$\{/.test(text), label + ': ${...} is scrubbed');
+          assert.notOk(/\{\{|\}\}/.test(text), label + ': {{...}} is scrubbed');
+        });
+      }
+    );
   };
 });
