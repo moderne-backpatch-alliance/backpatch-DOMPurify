@@ -3585,6 +3585,49 @@
     );
 
     QUnit.test(
+      'GHSA-hpcv-96wg-7vj8: cross-realm attached shadow root is walked and sanitized',
+      function (assert) {
+        var ran = _withForeignRealmDoc(function (idoc) {
+          var host = idoc.createElement('div');
+          if (typeof host.attachShadow !== 'function') {
+            assert.ok(
+              true,
+              'SKIP: foreign realm does not support attachShadow'
+            );
+            return;
+          }
+          host.attachShadow({ mode: 'open' }).innerHTML =
+            '<img src=x onerror="window.__hpcv_shadow_xss=1"><b>safe</b>';
+
+          // Pre-fix the `sr instanceof DocumentFragment` check in
+          // _sanitizeAttachedShadowRoots failed for the foreign-realm shadow
+          // root and the whole shadow subtree was skipped. The handler then
+          // fired the moment the host was inserted into the live document.
+          DOMPurify.sanitize(host, { IN_PLACE: true });
+
+          var img = host.shadowRoot && host.shadowRoot.querySelector('img');
+          // The <img> tag survives (with sanitized attrs) — the assertion is
+          // specifically about the onerror handler being stripped.
+          if (img) {
+            assert.equal(
+              img.getAttribute('onerror'),
+              null,
+              'onerror inside foreign-realm shadow root must be stripped'
+            );
+          } else {
+            assert.ok(
+              true,
+              'shadow root contents removed entirely — also acceptable'
+            );
+          }
+        });
+        if (!ran) {
+          assert.ok(true, 'SKIP: cannot construct a foreign-realm document');
+        }
+      }
+    );
+
+    QUnit.test(
       'GHSA-hpcv-96wg-7vj8: cross-realm Element with forbidden namespace is removed',
       function (assert) {
         var ran = _withForeignRealmDoc(function (idoc) {
