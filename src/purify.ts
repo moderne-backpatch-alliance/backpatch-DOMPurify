@@ -1791,8 +1791,17 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
         continue;
       }
 
-      /* Make sure we cannot easily use animated hrefs, even if animations are allowed */
-      if (lcName === 'attributename' && stringMatch(value, 'href')) {
+      /* Make sure we cannot easily use animated hrefs, even if animations are
+         allowed. Compared case-insensitively on purpose: in
+         application/xhtml+xml mode lcName keeps its case, and the real SVG
+         attribute is spelled attributeName, which 'attributename' would
+         never match (GHSA-c6gr-qvv4-5v3f). In XHTML a lowercase
+         `attributename` is not the SMIL attribute, so also stripping it
+         there costs nothing. */
+      if (
+        stringToLowerCase(name) === 'attributename' &&
+        stringMatch(value, 'href')
+      ) {
         _removeAttribute(name, currentNode);
         continue;
       }

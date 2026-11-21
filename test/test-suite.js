@@ -2928,6 +2928,88 @@
       assert.contains(clean, expected);
     });
 
+    // An allowed <animate>/<set> must not be able to retarget a link's href:
+    // attributeName values containing "href" are dropped. In XHTML mode the
+    // attribute name keeps its case (attributeName), so the guard used to
+    // compare it against 'attributename' and never fire; with
+    // values="x;javascript:..." the last list entry passes the URI check and
+    // becomes the link's effective href (GHSA-c6gr-qvv4-5v3f).
+    QUnit.test(
+      'animated href is blocked in every parser mode (attributeName guard)',
+      (assert) => {
+        const svgNs = 'xmlns="http://www.w3.org/2000/svg"';
+        const animate =
+          '<svg ' +
+          svgNs +
+          '><a id="q"><animate attributeName="href" ' +
+          'values="x;javascript:alert(1)" dur="0.01s" fill="freeze"/>' +
+          '<text x="10" y="40">click</text></a></svg>';
+        const set =
+          '<svg ' +
+          svgNs +
+          '><a><set attributeName="href" to="x" fill="freeze"/>' +
+          '<text>click</text></a></svg>';
+        const animAttrs = ['values', 'dur', 'fill', 'x', 'y', 'id', 'to'];
+        const configs = [
+          {
+            label: 'XHTML, camelCase ALLOWED_ATTR',
+            cfg: {
+              PARSER_MEDIA_TYPE: 'application/xhtml+xml',
+              ALLOWED_TAGS: ['svg', 'a', 'animate', 'set', 'text'],
+              ALLOWED_ATTR: ['attributeName'].concat(animAttrs),
+            },
+          },
+          {
+            label: 'XHTML, svg profile + ADD_ATTR',
+            cfg: {
+              PARSER_MEDIA_TYPE: 'application/xhtml+xml',
+              USE_PROFILES: { svg: true },
+              ADD_TAGS: ['animate', 'set'],
+              ADD_ATTR: ['attributeName'].concat(animAttrs),
+            },
+          },
+          {
+            label: 'text/html',
+            cfg: {
+              ALLOWED_TAGS: ['svg', 'a', 'animate', 'set', 'text'],
+              ALLOWED_ATTR: ['attributename'].concat(animAttrs),
+            },
+          },
+        ];
+
+        configs.forEach(({ label, cfg }) => {
+          [animate, set].forEach((dirty) => {
+            const clean = DOMPurify.sanitize(dirty, cfg);
+            assert.notOk(
+              /attributename/i.test(clean),
+              label + ': href-targeting attributeName removed: ' + clean
+            );
+          });
+        });
+      }
+    );
+
+    QUnit.test(
+      'XHTML: attributeName that does not target href is kept',
+      (assert) => {
+        // The guard must not over-strip ordinary SVG animations.
+        const clean = DOMPurify.sanitize(
+          '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10">' +
+            '<animate attributeName="opacity" values="0;1" dur="1s"/></rect></svg>',
+          {
+            PARSER_MEDIA_TYPE: 'application/xhtml+xml',
+            USE_PROFILES: { svg: true },
+            ADD_TAGS: ['animate'],
+            ADD_ATTR: ['attributeName', 'values', 'dur'],
+          }
+        );
+        assert.ok(
+          /attributeName="opacity"/.test(clean),
+          'non-href animation kept: ' + clean
+        );
+      }
+    );
+
     QUnit.test('Expect the same results when using ALLOWED_URI_REGEXP with the g flag', function (assert) {
       const dirty  = '<img src="blob:http://localhost:5173/84c49be9-3352-4407-b066-7b5b4d46c52a"><a epub:type="noteref" href="epub:EPUB/xhtml/#footnote"></a><img src="blob:http://localhost:5173/84c49be9-3352-4407" >';
       const config = { 
