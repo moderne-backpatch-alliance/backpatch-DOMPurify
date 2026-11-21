@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00013 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00013/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00014 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00014/LICENSE */
 
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
@@ -332,7 +332,7 @@
   function createDOMPurify() {
     let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
     const DOMPurify = root => createDOMPurify(root);
-    DOMPurify.version = '3.3.4-backpatch-00013';
+    DOMPurify.version = '3.3.4-backpatch-00014';
     DOMPurify.removed = [];
     if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
       // Not running in a browser, provide a factory function
@@ -969,6 +969,59 @@
       }
     };
     /**
+     * _stripDisallowedAttributes
+     *
+     * Removes every attribute the active configuration does not allow from a
+     * single element, using the same allowlist as the main attribute pass (so
+     * `on*` handlers go, but no `/^on/` blocklist is introduced). Used only to
+     * neutralise nodes that are being discarded from an in-place tree.
+     *
+     * @param element the element to strip
+     */
+    const _stripDisallowedAttributes = function _stripDisallowedAttributes(element) {
+      const attributes = element.attributes;
+      if (!attributes) {
+        return;
+      }
+      for (let i = attributes.length - 1; i >= 0; --i) {
+        const attribute = attributes[i];
+        const name = attribute && attribute.name;
+        if (typeof name !== 'string' || ALLOWED_ATTR[transformCaseFunc(name)]) {
+          continue;
+        }
+        try {
+          element.removeAttribute(name);
+        } catch (_) {
+          /* Clobbered removeAttribute on a doomed node — ignore */
+        }
+      }
+    };
+    /**
+     * _neutralizeSubtree
+     *
+     * Strips every attribute the active configuration does not allow from a
+     * subtree that leaves an IN_PLACE tree, so a queued resource handler on it
+     * cannot fire after sanitize returns. Hook-free by design.
+     *
+     * @param root the root of a removed subtree to neutralise
+     */
+    const _neutralizeSubtree = function _neutralizeSubtree(root) {
+      const stack = [root];
+      while (stack.length > 0) {
+        const node = stack.pop();
+        const nodeType = node.nodeType;
+        if (nodeType === NODE_TYPE.element) {
+          _stripDisallowedAttributes(node);
+        }
+        const childNodes = getChildNodes ? getChildNodes(node) : node.childNodes;
+        if (childNodes) {
+          for (let i = childNodes.length - 1; i >= 0; --i) {
+            stack.push(childNodes[i]);
+          }
+        }
+      }
+    };
+    /**
      * _initDocument
      *
      * @param dirty - a string of dirty markup
@@ -1179,10 +1232,21 @@
      * @param currentNode to check for permission to exist
      * @return true if node was killed, false if left alive
      */
-    const _sanitizeElements = function _sanitizeElements(currentNode) {
+    // eslint-disable-next-line complexity
+    const _sanitizeElements = function _sanitizeElements(currentNode, root) {
       let content = null;
       /* Execute a hook if present */
       _executeHooks(hooks.beforeSanitizeElements, currentNode, null);
+      /* A hook may have detached the node - treat it as removed (see the
+         detached-node comment after the uponSanitizeElement hook below). On
+         the IN_PLACE path, neutralize the detached subtree first so a queued
+         resource handler on it cannot fire in page scope after we return. */
+      if (currentNode !== root && getParentNode(currentNode) === null) {
+        if (IN_PLACE) {
+          _neutralizeSubtree(currentNode);
+        }
+        return true;
+      }
       /* Check if element is clobbered or can clobber */
       if (_isClobbered(currentNode)) {
         _forceRemove(currentNode);
@@ -1201,6 +1265,16 @@
         tagName,
         allowedTags: ALLOWED_TAGS
       });
+      /* A hook may have detached the node from the tree (issue #469 pattern):
+         treat it as removed and stop processing it. The walk root is exempt.
+         Hook-detached nodes are not recorded in DOMPurify.removed. On the
+         IN_PLACE path their subtree is neutralized inline here instead. */
+      if (currentNode !== root && getParentNode(currentNode) === null) {
+        if (IN_PLACE) {
+          _neutralizeSubtree(currentNode);
+        }
+        return true;
+      }
       /* Detect mXSS attempts abusing namespace confusion */
       if (SAFE_FOR_XML && currentNode.hasChildNodes() && !_isNode(currentNode.firstElementChild) && regExpTest(/<[/\w!]/g, currentNode.innerHTML) && regExpTest(/<[/\w!]/g, currentNode.textContent)) {
         _forceRemove(currentNode);
@@ -1482,7 +1556,7 @@
         /* Execute a hook if present */
         _executeHooks(hooks.uponSanitizeShadowNode, shadowNode, null);
         /* Sanitize tags and elements */
-        _sanitizeElements(shadowNode);
+        _sanitizeElements(shadowNode, fragment);
         /* Check attributes next */
         _sanitizeAttributes(shadowNode);
         /* Deep shadow DOM detected.
@@ -1674,11 +1748,12 @@
         _forceRemove(body.firstChild);
       }
       /* Get node iterator */
-      const nodeIterator = _createNodeIterator(inPlace ? dirty : body);
+      const walkRoot = inPlace ? dirty : body;
+      const nodeIterator = _createNodeIterator(walkRoot);
       /* Now start iterating over the created document */
       while (currentNode = nodeIterator.nextNode()) {
         /* Sanitize tags and elements */
-        _sanitizeElements(currentNode);
+        _sanitizeElements(currentNode, walkRoot);
         /* Check attributes next */
         _sanitizeAttributes(currentNode);
         /* Shadow DOM detected, sanitize it.
