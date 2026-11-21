@@ -1420,6 +1420,9 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
           CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof RegExp &&
           regExpTest(CUSTOM_ELEMENT_HANDLING.tagNameCheck, tagName)
         ) {
+          /* A kept custom element still gets afterSanitizeElements, like any
+             allowed element (GHSA-c2j3-45gr-mqc4). */
+          _executeHooks(hooks.afterSanitizeElements, currentNode, null);
           return false;
         }
 
@@ -1427,6 +1430,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
           CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof Function &&
           CUSTOM_ELEMENT_HANDLING.tagNameCheck(tagName)
         ) {
+          _executeHooks(hooks.afterSanitizeElements, currentNode, null);
           return false;
         }
       }
