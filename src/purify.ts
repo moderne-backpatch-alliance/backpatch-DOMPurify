@@ -1945,9 +1945,14 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     const inPlace = IN_PLACE && typeof dirty !== 'string' && _isNode(dirty);
 
     if (inPlace) {
-      /* Do some early pre-sanitization to avoid unsafe root nodes */
-      if ((dirty as Node).nodeName) {
-        const tagName = transformCaseFunc((dirty as Node).nodeName);
+      /* Do some early pre-sanitization to avoid unsafe root nodes.
+         Read nodeName via the cached prototype getter: an own or clobbered
+         nodeName on the root must not skip the root-allowlist check. */
+      const nn = getNodeName
+        ? getNodeName(dirty as Node)
+        : (dirty as Node).nodeName;
+      if (nn) {
+        const tagName = transformCaseFunc(nn);
         if (!ALLOWED_TAGS[tagName] || FORBID_TAGS[tagName]) {
           throw typeErrorCreate(
             'root node is forbidden and cannot be sanitized in-place'
