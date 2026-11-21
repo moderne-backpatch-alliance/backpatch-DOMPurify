@@ -2159,6 +2159,23 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
 
     /* If we sanitized `dirty` in-place, return it. */
     if (inPlace) {
+      /* A force-removed root (mXSS canary, clobbered, ...) is detached and may
+         still carry a literal `</tag>` payload; there is no safe node to hand
+         back, so fail closed instead of returning it. */
+      let rootWasRemoved = false;
+      arrayForEach(DOMPurify.removed, (entry) => {
+        if (entry.element && entry.element === dirty) {
+          rootWasRemoved = true;
+        }
+      });
+
+      if (rootWasRemoved) {
+        throw typeErrorCreate(
+          'a node selected for removal could not be safely returned; ' +
+            'refusing to sanitize in place'
+        );
+      }
+
       if (SAFE_FOR_TEMPLATES) {
         _scrubTemplateExpressions(dirty as Element);
       }
