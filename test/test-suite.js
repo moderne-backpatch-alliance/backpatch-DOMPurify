@@ -4824,5 +4824,49 @@
         }
       );
     });
+
+    // jsdom does not implement the form named-getter override
+    // ([LegacyOverrideBuiltIns]), so an own accessor stands in for a child
+    // <input name="attributes"> or <input name="nodeType">.
+    ['attributes', 'nodeType', null].forEach((prop) => {
+      QUnit.test(
+        'IN_PLACE: a hook-detached form ' +
+          (prop ? 'with a clobbered ' + prop : 'without a clobbered property') +
+          ' is neutralized',
+        (assert) => {
+          const root = document.createElement('div');
+          const form = document.createElement('form');
+          form.setAttribute('onclick', 'alert(1)');
+          root.appendChild(form);
+          if (prop) {
+            const fake = document.createElement('input');
+            Object.defineProperty(form, prop, {
+              get() {
+                return fake;
+              },
+              configurable: true,
+            });
+          }
+
+          DOMPurify.addHook('beforeSanitizeElements', (node) => {
+            if (node === form) {
+              node.remove();
+            }
+          });
+
+          try {
+            DOMPurify.sanitize(root, { IN_PLACE: true });
+
+            assert.strictEqual(
+              form.getAttribute('onclick'),
+              null,
+              'on* handler stripped from the hook-detached form'
+            );
+          } finally {
+            DOMPurify.removeHook('beforeSanitizeElements');
+          }
+        }
+      );
+    });
   };
 });

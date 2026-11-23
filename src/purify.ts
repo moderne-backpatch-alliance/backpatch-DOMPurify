@@ -1073,7 +1073,9 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
    * @param element the element to strip
    */
   const _stripDisallowedAttributes = function (element: Element): void {
-    const attributes = element.attributes;
+    const attributes = getAttributes
+      ? getAttributes(element)
+      : element.attributes;
     if (!attributes) {
       return;
     }
@@ -1107,7 +1109,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
 
     while (stack.length > 0) {
       const node = stack.pop();
-      const nodeType = (node as any).nodeType;
+      const nodeType = getNodeType ? getNodeType(node) : (node as any).nodeType;
 
       if (nodeType === NODE_TYPE.element) {
         _stripDisallowedAttributes(node as Element);
