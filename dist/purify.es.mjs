@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00019 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00019/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00020 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00020/LICENSE */
 
 const {
   entries,
@@ -269,6 +269,37 @@ const NODE_TYPE = {
   documentFragment: 11,
   notation: 12 // Deprecated
 };
+/* HTML-namespace elements whose child text nodes are serialized *literally*
+   (unescaped) by the HTML fragment-serialization algorithm. Two reparse-mXSS
+   shapes ride on that literal serialization:
+     (a) an element child - a tree the HTML parser can never build, but the DOM
+         API and an XML/XHTML parse can - after which a `</tag>`-bearing text
+         sibling breaks the element open on reparse; and
+     (b) text-only content that already carries the element's OWN end tag, e.g.
+         `<style>...</style><img onerror=x>` built as a node, which the literal
+         serializer emits verbatim for the HTML parser to re-open.
+   Shape (a) is handled by the firstElementChild branch in _isUnsafeNode; shape
+   (b) by the LITERAL_TEXT_CLOSE probe. Both read textContent (the raw-serialized
+   form for these elements) rather than innerHTML, because an XML/XHTML working
+   document serializes innerHTML with `<` escaped, which silently blinds the
+   innerHTML-based probes (rule 1's second probe and FALLBACK_TAG_CLOSE) there.
+   `script` is never allow-listed, but is kept here so the guard matches the
+   serializer's own literal-text list exactly. */
+const LITERAL_TEXT_ELEMENT_NAMES = ['style', 'script', 'xmp', 'iframe', 'noembed', 'noframes', 'plaintext', 'noscript'];
+const LITERAL_TEXT_ELEMENTS = freeze(addToSet({}, LITERAL_TEXT_ELEMENT_NAMES));
+/* Per-element end-tag matcher. On an HTML reparse the ONLY token that
+   terminates a literal-text element's raw content is its own end tag; a foreign
+   literal-text close (e.g. `</xmp>` sitting inside `<style>`) does not break
+   out, so matching is per-element, not a shared alternation. The lookahead
+   requires an HTML tag-name terminator (whitespace, `/` or `>`) so a longer
+   name such as `</styles` is not mistaken for `</style`. */
+const LITERAL_TEXT_CLOSE = function () {
+  const map = {};
+  arrayForEach(LITERAL_TEXT_ELEMENT_NAMES, name => {
+    map[name] = seal(new RegExp('</' + name + '(?=[\\t\\n\\f\\r />])', 'i'));
+  });
+  return freeze(map);
+}();
 const getGlobal = function getGlobal() {
   return typeof window === 'undefined' ? null : window;
 };
@@ -326,7 +357,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00019';
+  DOMPurify.version = '3.3.4-backpatch-00020';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -1279,6 +1310,19 @@ function createDOMPurify() {
     }
     /* Detect mXSS attempts abusing namespace confusion */
     if (SAFE_FOR_XML && currentNode.hasChildNodes() && !_isNode(currentNode.firstElementChild) && regExpTest(/<[/\w!]/g, currentNode.innerHTML) && regExpTest(/<[/\w!]/g, currentNode.textContent)) {
+      _forceRemove(currentNode);
+      return true;
+    }
+    /* Remove rawtext/literal-text elements whose literal serialization
+       re-opens markup on an HTML reparse - shapes (a) and (b) documented at
+       LITERAL_TEXT_ELEMENTS. Both are invisible to rule 1 above (which
+       self-disables once there is an element child, and whose second probe
+       reads the innerHTML an XML/XHTML document serializes escaped), which
+       is why both probes here read textContent instead. Previously only
+       `style`-with-element-child was covered; every element in
+       LITERAL_TEXT_ELEMENTS shares this literal serialization and is
+       equally affected. */
+    if (SAFE_FOR_XML && currentNode.namespaceURI === HTML_NAMESPACE && LITERAL_TEXT_ELEMENTS[tagName] && (_isNode(currentNode.firstElementChild) || typeof currentNode.textContent === 'string' && regExpTest(LITERAL_TEXT_CLOSE[tagName], currentNode.textContent))) {
       _forceRemove(currentNode);
       return true;
     }
