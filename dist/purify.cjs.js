@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00016 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00016/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00017 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00017/LICENSE */
 
 'use strict';
 
@@ -328,7 +328,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00016';
+  DOMPurify.version = '3.3.4-backpatch-00017';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -1142,6 +1142,14 @@ function createDOMPurify() {
     // Realm-safe NamedNodeMap detection: a clobbered .attributes diverges
     // from the cached prototype getter's read.
     element.attributes !== getAttributes(element) || typeof element.removeAttribute !== 'function' || typeof element.setAttribute !== 'function' || typeof element.namespaceURI !== 'string' || typeof element.insertBefore !== 'function' || typeof element.hasChildNodes !== 'function' ||
+    // NodeType clobbering probe. Cached Node.prototype.nodeType getter
+    // returns the integer 1 for any Element regardless of realm; direct
+    // read on a clobbered form (e.g. <input name="nodeType">) returns
+    // the named child element. Cheap addition — nodeType is read from
+    // an internal slot, no serialization cost — and removes a residual
+    // clobbering surface used by several mXSS / PI / comment branches
+    // in _sanitizeElements that compare currentNode.nodeType directly.
+    element.nodeType !== getNodeType(element) ||
     // Form [LegacyOverrideBuiltIns]: a child named "childNodes" makes the
     // direct read diverge from the cached getter; typeof cannot see it.
     element.childNodes !== getChildNodes(element);
