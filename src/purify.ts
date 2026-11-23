@@ -212,6 +212,10 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeType') : null;
   const getNodeName =
     Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeName') : null;
+  const getOwnerDocument =
+    Node && Node.prototype
+      ? lookupGetter(Node.prototype, 'ownerDocument')
+      : null;
 
   /* Element namespace through the cached Element.prototype getter, so a live
      node's own-property override cannot steer namespace decisions. */
@@ -1249,8 +1253,18 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
    * @return The created NodeIterator
    */
   const _createNodeIterator = function (root: Node): NodeIterator {
+    /* Read ownerDocument through the cached Node.prototype getter, never the
+       direct property. HTMLFormElement has [LegacyOverrideBuiltIns], so a
+       clobbering child (<input name="ownerDocument"> or a form-associated
+       external input) shadows the prototype getter and makes a direct read
+       return that <input>. createNodeIterator.call(<input>, ...) then throws
+       "Illegal invocation", and on the IN_PLACE path that throw lands before
+       the walk's fail-closed barrier - leaving the caller's live tree, with
+       any already-armed handler in it, un-neutralized. The cached getter
+       returns the real Document regardless of the clobber. */
+    const doc = getOwnerDocument ? getOwnerDocument(root) : root.ownerDocument;
     return createNodeIterator.call(
-      root.ownerDocument || root,
+      doc || root,
       root,
       // eslint-disable-next-line no-bitwise
       NodeFilter.SHOW_ELEMENT |
@@ -1283,8 +1297,12 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
    */
   const _scrubTemplateExpressions = function (node: Element): void {
     node.normalize();
+    /* Clobber-safe ownerDocument read, same reasoning as _createNodeIterator:
+       under SAFE_FOR_TEMPLATES this runs on the live IN_PLACE root, which may
+       carry a form-named-getter override of ownerDocument. */
+    const doc = getOwnerDocument ? getOwnerDocument(node) : node.ownerDocument;
     const walker = createNodeIterator.call(
-      node.ownerDocument || node,
+      doc || node,
       node,
       // eslint-disable-next-line no-bitwise
       NodeFilter.SHOW_TEXT |
