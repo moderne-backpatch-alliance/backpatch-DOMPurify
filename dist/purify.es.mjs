@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00021 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00021/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00022 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00022/LICENSE */
 
 const {
   entries,
@@ -357,7 +357,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00021';
+  DOMPurify.version = '3.3.4-backpatch-00022';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -1634,7 +1634,7 @@ function createDOMPurify() {
       /* NodeIterator does not enter shadow trees, so a shadow root hosted
          inside template.content is reached by no other walk; the nodeType
          guard skips text / comment / CDATA / PI nodes. */
-      const shadowNodeType = shadowNode.nodeType;
+      const shadowNodeType = getNodeType ? getNodeType(shadowNode) : shadowNode.nodeType;
       if (shadowNodeType === NODE_TYPE.element) {
         const innerSr = shadowNode.shadowRoot;
         if (_isDocumentFragment(innerSr)) {
@@ -1666,7 +1666,8 @@ function createDOMPurify() {
    * @param root the subtree root to walk for attached shadow roots
    */
   const _sanitizeAttachedShadowRoots = function _sanitizeAttachedShadowRoots(root) {
-    if (root.nodeType === NODE_TYPE.element && _isDocumentFragment(root.shadowRoot)) {
+    const nodeType = getNodeType ? getNodeType(root) : root.nodeType;
+    if (nodeType === NODE_TYPE.element && _isDocumentFragment(root.shadowRoot)) {
       const sr = root.shadowRoot;
       // Recurse first so that nested shadow roots are reached even if
       // _sanitizeShadowDOM removes hosts at this level.
@@ -1689,8 +1690,8 @@ function createDOMPurify() {
       _sanitizeAttachedShadowRoots(child);
     }
     /* When the root is a <template>, also descend into root.content */
-    if (root.nodeType === NODE_TYPE.element) {
-      const rootName = root.nodeName;
+    if (nodeType === NODE_TYPE.element) {
+      const rootName = getNodeName ? getNodeName(root) : null;
       if (typeof rootName === 'string' && transformCaseFunc(rootName) === 'template') {
         const content = root.content;
         if (_isDocumentFragment(content)) {
