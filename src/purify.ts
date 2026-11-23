@@ -1300,6 +1300,14 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       typeof element.namespaceURI !== 'string' ||
       typeof element.insertBefore !== 'function' ||
       typeof element.hasChildNodes !== 'function' ||
+      // NodeType clobbering probe. Cached Node.prototype.nodeType getter
+      // returns the integer 1 for any Element regardless of realm; direct
+      // read on a clobbered form (e.g. <input name="nodeType">) returns
+      // the named child element. Cheap addition — nodeType is read from
+      // an internal slot, no serialization cost — and removes a residual
+      // clobbering surface used by several mXSS / PI / comment branches
+      // in _sanitizeElements that compare currentNode.nodeType directly.
+      element.nodeType !== getNodeType(element) ||
       // Form [LegacyOverrideBuiltIns]: a child named "childNodes" makes the
       // direct read diverge from the cached getter; typeof cannot see it.
       element.childNodes !== getChildNodes(element)

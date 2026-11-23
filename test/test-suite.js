@@ -4493,6 +4493,51 @@
           );
         }
       );
+
+      QUnit.test(
+        'IN_PLACE: a form with a clobbered nodeType is removed',
+        (assert) => {
+          // jsdom does not implement the form named-getter override
+          // ([LegacyOverrideBuiltIns]), so an own accessor stands in for a
+          // child <input name="nodeType">.
+          const root = document.createElement('div');
+          const form = document.createElement('form');
+          const fake = document.createElement('input');
+          Object.defineProperty(form, 'nodeType', {
+            get() {
+              return fake;
+            },
+            configurable: true,
+          });
+          root.appendChild(form);
+          assert.strictEqual(
+            form.nodeType,
+            fake,
+            'precondition: nodeType read is clobbered'
+          );
+
+          purify.sanitize(root, { IN_PLACE: true });
+
+          assert.strictEqual(
+            root.querySelector('form'),
+            null,
+            'clobbered form removed'
+          );
+        }
+      );
+
+      QUnit.test(
+        'IN_PLACE: a form without a clobbered nodeType is kept',
+        (assert) => {
+          const root = document.createElement('div');
+          const form = document.createElement('form');
+          root.appendChild(form);
+
+          purify.sanitize(root, { IN_PLACE: true });
+
+          assert.strictEqual(root.querySelector('form'), form, 'form kept');
+        }
+      );
     });
 
     QUnit.module('Regression — template.content traversal bypass');
