@@ -4868,5 +4868,126 @@
         }
       );
     });
+
+    /*
+     * Rawtext/literal-text element carrying an element child breaks out on reparse.
+     *
+     * The HTML serializer emits the text children of style, script, xmp, iframe,
+     * noembed, noframes, plaintext and noscript literally (unescaped). The generic
+     * mXSS canary in _isUnsafeNode fires only when the node has NO element child,
+     * so a rawtext element carrying both an element child (a shield that makes
+     * firstElementChild non-null) and a `</tag>`-bearing text sibling slips it. A
+     * second guard covered exactly this shape but only for `style`; it now covers
+     * the whole literal-text set. This tree is unreachable from a string (the HTML
+     * parser only ever puts a single text node inside a rawtext element) but the
+     * DOM API and an XML parse build it, and sanitize(node) accepts it.
+     */
+    function buildRawtextBreakout(tagName) {
+      const el = document.createElement(tagName);
+      el.appendChild(document.createElement('b')); // shield: firstElementChild != null
+      el.appendChild(
+        document.createTextNode(
+          '</' + tagName + '><img src=n onerror=alert(1)>'
+        )
+      );
+      const wrap = document.createElement('div');
+      wrap.appendChild(el);
+      return wrap;
+    }
+
+    QUnit.test(
+      '<style> rawtext element-child breakout is blocked (default config)',
+      (assert) => {
+        const out = DOMPurify.sanitize(buildRawtextBreakout('style'));
+        assert.notOk(/onerror/i.test(out), `style breakout — got: ${out}`);
+      }
+    );
+
+    QUnit.test(
+      '<xmp> rawtext element-child breakout is blocked when allow-listed',
+      (assert) => {
+        const out = DOMPurify.sanitize(buildRawtextBreakout('xmp'), {
+          ADD_TAGS: ['xmp'],
+        });
+        assert.notOk(/onerror/i.test(out), `xmp breakout — got: ${out}`);
+      }
+    );
+
+    QUnit.test(
+      '<iframe> rawtext element-child breakout is blocked when allow-listed',
+      (assert) => {
+        const out = DOMPurify.sanitize(buildRawtextBreakout('iframe'), {
+          ADD_TAGS: ['iframe'],
+        });
+        assert.notOk(/onerror/i.test(out), `iframe breakout — got: ${out}`);
+      }
+    );
+
+    QUnit.test(
+      'rawtext leaf without element child is still blocked (rule 1)',
+      (assert) => {
+        const el = document.createElement('xmp');
+        el.appendChild(
+          document.createTextNode('</xmp><img src=n onerror=alert(1)>')
+        );
+        const wrap = document.createElement('div');
+        wrap.appendChild(el);
+        const out = DOMPurify.sanitize(wrap, { ADD_TAGS: ['xmp'] });
+        assert.notOk(/onerror/i.test(out), `xmp leaf breakout — got: ${out}`);
+      }
+    );
+
+    QUnit.test(
+      'equivalent rawtext string input is unaffected (control)',
+      (assert) => {
+        const out = DOMPurify.sanitize(
+          '<xmp><b>x</b></xmp><img src=n onerror=alert(1)>',
+          { ADD_TAGS: ['xmp'] }
+        );
+        assert.notOk(
+          /onerror/i.test(out),
+          `string-input control — got: ${out}`
+        );
+      }
+    );
+
+    /*
+     * Loose end B - the text-only literal-text breakout in an XML working
+     * document. The element-child guard above does not fire on a text-only node,
+     * which then falls to rule 1, whose second probe reads innerHTML. In an
+     * application/xhtml+xml document innerHTML is XML-serialized (`<` escaped),
+     * so that probe - and the innerHTML-based FALLBACK_TAG_CLOSE - can never
+     * match there, leaving `<style>...</style><img onerror=...>` to survive for a
+     * later HTML reserialize. The guard now also probes textContent (the raw
+     * form for these elements) for the element's OWN end tag, which is XML-
+     * agnostic. Reachable by default because <style> is default-allowed. The
+     * `rule 1 leaf` test above is the HTML-mode counterpart; this is the XML one.
+     */
+    QUnit.test(
+      'text-only <style> own-end-tag breakout is blocked in XHTML mode (loose end B)',
+      (assert) => {
+        const out = DOMPurify.sanitize(
+          '<style>&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;</style>',
+          { PARSER_MEDIA_TYPE: 'application/xhtml+xml' }
+        );
+        assert.notOk(
+          /onerror/i.test(out),
+          `xhtml text-only style breakout must not survive - got: ${out}`
+        );
+      }
+    );
+
+    QUnit.test(
+      'legitimate <style> is preserved in XHTML mode (loose end B precision)',
+      (assert) => {
+        const out = DOMPurify.sanitize('<style>p{color:red}</style>', {
+          PARSER_MEDIA_TYPE: 'application/xhtml+xml',
+        });
+        assert.ok(
+          /p\{color:red\}/.test(out),
+          `legitimate CSS must survive - got: ${out}`
+        );
+      }
+    );
   };
 });
