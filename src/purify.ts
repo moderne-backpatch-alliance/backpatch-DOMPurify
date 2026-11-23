@@ -2014,7 +2014,9 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
       /* NodeIterator does not enter shadow trees, so a shadow root hosted
          inside template.content is reached by no other walk; the nodeType
          guard skips text / comment / CDATA / PI nodes. */
-      const shadowNodeType = (shadowNode as Node).nodeType;
+      const shadowNodeType = getNodeType
+        ? getNodeType(shadowNode)
+        : (shadowNode as Node).nodeType;
       if (shadowNodeType === NODE_TYPE.element) {
         const innerSr = (shadowNode as Element).shadowRoot;
         if (_isDocumentFragment(innerSr)) {
@@ -2048,8 +2050,10 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
    * @param root the subtree root to walk for attached shadow roots
    */
   const _sanitizeAttachedShadowRoots = function (root: Node): void {
+    const nodeType = getNodeType ? getNodeType(root) : (root as any).nodeType;
+
     if (
-      root.nodeType === NODE_TYPE.element &&
+      nodeType === NODE_TYPE.element &&
       _isDocumentFragment((root as Element).shadowRoot)
     ) {
       const sr = (root as Element).shadowRoot as DocumentFragment;
@@ -2078,8 +2082,8 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     }
 
     /* When the root is a <template>, also descend into root.content */
-    if (root.nodeType === NODE_TYPE.element) {
-      const rootName = (root as Element).nodeName;
+    if (nodeType === NODE_TYPE.element) {
+      const rootName = getNodeName ? getNodeName(root) : null;
       if (
         typeof rootName === 'string' &&
         transformCaseFunc(rootName) === 'template'

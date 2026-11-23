@@ -3776,6 +3776,52 @@
       }
     );
 
+    // An own nodeType accessor on the shadow host stands in for a clobbered
+    // read; the walk must use the cached getter to find the shadow root.
+    [
+      { where: 'in the tree', inTemplate: false, clobbered: true },
+      { where: 'in template.content', inTemplate: true, clobbered: true },
+      { where: 'in the tree', inTemplate: false, clobbered: false },
+    ].forEach(({ where, inTemplate, clobbered }) => {
+      QUnit.test(
+        'IN_PLACE: shadow root of a host ' +
+          where +
+          (clobbered ? ' with a clobbered nodeType' : '') +
+          ' is sanitized',
+        (assert) => {
+          const root = document.createElement('div');
+          const host = document.createElement('div');
+          host.attachShadow({ mode: 'open' }).innerHTML =
+            '<img id="x" onerror="alert(1)">';
+          if (inTemplate) {
+            const tmpl = document.createElement('template');
+            tmpl.content.appendChild(host);
+            root.appendChild(tmpl);
+          } else {
+            root.appendChild(host);
+          }
+
+          if (clobbered) {
+            const fake = document.createElement('input');
+            Object.defineProperty(host, 'nodeType', {
+              get() {
+                return fake;
+              },
+              configurable: true,
+            });
+          }
+
+          DOMPurify.sanitize(root, { IN_PLACE: true });
+
+          const img = host.shadowRoot.querySelector('#x');
+          assert.ok(
+            !img || img.getAttribute('onerror') === null,
+            'on* handler stripped inside the shadow root'
+          );
+        }
+      );
+    });
+
     QUnit.test(
       'IN_PLACE sanitizes cross-realm DOM nodes (GHSA-4w3q-35jp-p934)',
       (assert) => {
