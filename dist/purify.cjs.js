@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00018 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00018/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00019 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00019/LICENSE */
 
 'use strict';
 
@@ -328,7 +328,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00018';
+  DOMPurify.version = '3.3.4-backpatch-00019';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -975,7 +975,7 @@ function createDOMPurify() {
    * @param element the element to strip
    */
   const _stripDisallowedAttributes = function _stripDisallowedAttributes(element) {
-    const attributes = element.attributes;
+    const attributes = getAttributes ? getAttributes(element) : element.attributes;
     if (!attributes) {
       return;
     }
@@ -1005,7 +1005,7 @@ function createDOMPurify() {
     const stack = [root];
     while (stack.length > 0) {
       const node = stack.pop();
-      const nodeType = node.nodeType;
+      const nodeType = getNodeType ? getNodeType(node) : node.nodeType;
       if (nodeType === NODE_TYPE.element) {
         _stripDisallowedAttributes(node);
       }
