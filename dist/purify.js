@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00017 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00017/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00018 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00018/LICENSE */
 
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
@@ -332,7 +332,7 @@
   function createDOMPurify() {
     let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
     const DOMPurify = root => createDOMPurify(root);
-    DOMPurify.version = '3.3.4-backpatch-00017';
+    DOMPurify.version = '3.3.4-backpatch-00018';
     DOMPurify.removed = [];
     if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
       // Not running in a browser, provide a factory function
@@ -1121,7 +1121,7 @@
       // mirroring the approach used by _sanitizeShadowDOM.
       const templates = (_node$querySelectorAl = (_node$querySelectorAl2 = node.querySelectorAll) === null || _node$querySelectorAl2 === void 0 ? void 0 : _node$querySelectorAl2.call(node, 'template')) !== null && _node$querySelectorAl !== void 0 ? _node$querySelectorAl : [];
       arrayForEach(Array.from(templates), tmpl => {
-        if (tmpl.content instanceof DocumentFragment) {
+        if (_isDocumentFragment(tmpl.content)) {
           _scrubTemplateExpressions(tmpl.content);
         }
       });
