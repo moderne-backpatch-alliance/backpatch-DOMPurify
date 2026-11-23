@@ -1,4 +1,4 @@
-/*! @license DOMPurify 3.3.4-backpatch-00020 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00020/LICENSE */
+/*! @license DOMPurify 3.3.4-backpatch-00021 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.3.4-backpatch-00021/LICENSE */
 
 'use strict';
 
@@ -359,7 +359,7 @@ const _createHooksMap = function _createHooksMap() {
 function createDOMPurify() {
   let window = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : getGlobal();
   const DOMPurify = root => createDOMPurify(root);
-  DOMPurify.version = '3.3.4-backpatch-00020';
+  DOMPurify.version = '3.3.4-backpatch-00021';
   DOMPurify.removed = [];
   if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
     // Not running in a browser, provide a factory function
@@ -392,6 +392,7 @@ function createDOMPurify() {
   const getAttributes = lookupGetter(ElementPrototype, 'attributes');
   const getNodeType = Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeType') : null;
   const getNodeName = Node && Node.prototype ? lookupGetter(Node.prototype, 'nodeName') : null;
+  const getOwnerDocument = Node && Node.prototype ? lookupGetter(Node.prototype, 'ownerDocument') : null;
   /* Element namespace through the cached Element.prototype getter, so a live
      node's own-property override cannot steer namespace decisions. */
   const getNamespaceURI = lookupAccessor(ElementPrototype, 'namespaceURI');
@@ -1105,7 +1106,17 @@ function createDOMPurify() {
    * @return The created NodeIterator
    */
   const _createNodeIterator = function _createNodeIterator(root) {
-    return createNodeIterator.call(root.ownerDocument || root, root,
+    /* Read ownerDocument through the cached Node.prototype getter, never the
+       direct property. HTMLFormElement has [LegacyOverrideBuiltIns], so a
+       clobbering child (<input name="ownerDocument"> or a form-associated
+       external input) shadows the prototype getter and makes a direct read
+       return that <input>. createNodeIterator.call(<input>, ...) then throws
+       "Illegal invocation", and on the IN_PLACE path that throw lands before
+       the walk's fail-closed barrier - leaving the caller's live tree, with
+       any already-armed handler in it, un-neutralized. The cached getter
+       returns the real Document regardless of the clobber. */
+    const doc = getOwnerDocument ? getOwnerDocument(root) : root.ownerDocument;
+    return createNodeIterator.call(doc || root, root,
     // eslint-disable-next-line no-bitwise
     NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_TEXT | NodeFilter.SHOW_PROCESSING_INSTRUCTION | NodeFilter.SHOW_CDATA_SECTION, null);
   };
@@ -1131,7 +1142,11 @@ function createDOMPurify() {
   const _scrubTemplateExpressions = function _scrubTemplateExpressions(node) {
     var _node$querySelectorAl, _node$querySelectorAl2;
     node.normalize();
-    const walker = createNodeIterator.call(node.ownerDocument || node, node,
+    /* Clobber-safe ownerDocument read, same reasoning as _createNodeIterator:
+       under SAFE_FOR_TEMPLATES this runs on the live IN_PLACE root, which may
+       carry a form-named-getter override of ownerDocument. */
+    const doc = getOwnerDocument ? getOwnerDocument(node) : node.ownerDocument;
+    const walker = createNodeIterator.call(doc || node, node,
     // eslint-disable-next-line no-bitwise
     NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_CDATA_SECTION | NodeFilter.SHOW_PROCESSING_INSTRUCTION, null);
     let currentNode = walker.nextNode();
