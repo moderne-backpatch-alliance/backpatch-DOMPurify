@@ -4605,6 +4605,40 @@
       }
     );
 
+    QUnit.test(
+      'IN_PLACE scrubs expressions inside a cross-realm template.content',
+      (assert) => {
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const foreignDoc = iframe.contentDocument;
+
+        const dirty = foreignDoc.createElement('div');
+        const tmpl = foreignDoc.createElement('template');
+        tmpl.content.appendChild(foreignDoc.createTextNode('$'));
+        tmpl.content.appendChild(
+          foreignDoc.createTextNode('{constructor.constructor("alert(1)")()')
+        );
+        dirty.appendChild(tmpl);
+        assert.notOk(
+          tmpl.content instanceof window.DocumentFragment,
+          'precondition: template.content is from another realm'
+        );
+
+        DOMPurify.sanitize(dirty, {
+          IN_PLACE: true,
+          SAFE_FOR_TEMPLATES: true,
+        });
+
+        tmpl.content.normalize();
+        assert.notOk(
+          /\$\{/.test(tmpl.content.textContent),
+          'merged template-literal expression inside a foreign template.content is scrubbed'
+        );
+
+        document.body.removeChild(iframe);
+      }
+    );
+
     QUnit.test('scrub recurses into nested template.content', (assert) => {
       // A <template> inside a <template> produces two nested
       // DocumentFragments, both invisible to a flat NodeIterator. The

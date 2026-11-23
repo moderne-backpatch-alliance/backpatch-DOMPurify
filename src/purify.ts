@@ -1264,7 +1264,7 @@ function createDOMPurify(window: WindowLike = getGlobal()): DOMPurify {
     // mirroring the approach used by _sanitizeShadowDOM.
     const templates = node.querySelectorAll?.('template') ?? [];
     arrayForEach(Array.from(templates), (tmpl: HTMLTemplateElement) => {
-      if (tmpl.content instanceof DocumentFragment) {
+      if (_isDocumentFragment(tmpl.content)) {
         _scrubTemplateExpressions(tmpl.content as unknown as Element);
       }
     });
